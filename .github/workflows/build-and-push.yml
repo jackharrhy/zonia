@@ -5,6 +5,10 @@ on:
     branches: [main]
     paths:
       - "server/**"
+      # Client source is now baked into the image as prebuilt binaries
+      # served from /releases/, so client changes also rebuild.
+      - "client/**"
+      - ".dockerignore"
       - ".github/workflows/build-and-push.yml"
   workflow_dispatch:
 
@@ -46,7 +50,10 @@ jobs:
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
-          context: ./server
+          # Build context is the repo root so the Dockerfile can pull in
+          # both server/ and client/ alongside each other.
+          context: .
+          file: server/Dockerfile
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
