@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Publish all npm packages staged in dist/npm/.
-# Per-platform binary holders publish first; the unscoped launcher
-# (which depends on them via optionalDependencies) goes last.
+# Per-platform binary holders publish first; the launcher (which depends
+# on them via optionalDependencies) goes last.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -20,9 +20,9 @@ for d in "$NPM_DIR/@zonia-world/"*/; do
   (cd "$d" && npm publish --access public)
 done
 
-# Unscoped launcher (must publish AFTER its optionalDependencies are live)
-echo "==> Publishing zonia (launcher)"
-(cd "$NPM_DIR/zonia" && npm publish --access public)
+# Launcher (must publish AFTER its optionalDependencies are live)
+echo "==> Publishing zonia-world (launcher)"
+(cd "$NPM_DIR/zonia-world" && npm publish --access public)
 
 echo
-echo "Done. Try:  npx zonia"
+echo "Done. Try:  npx zonia-world"

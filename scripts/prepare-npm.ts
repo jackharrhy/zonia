@@ -145,26 +145,26 @@ for (const t of TARGETS) {
     join(pkgDir, "README.md"),
     `# ${pkgName}
 
-Prebuilt \`${t.platform}-${t.arch}\` binary for [zonia](https://www.npmjs.com/package/zonia).
+Prebuilt \`${t.platform}-${t.arch}\` binary for [zonia-world](https://www.npmjs.com/package/zonia-world).
 
 You probably want the parent package instead:
 
 \`\`\`sh
-npx zonia
+npx zonia-world
 \`\`\`
 `,
   );
   console.log(`  ✓ ${pkgName}`);
 }
 
-// ─── 3. stage the unscoped `zonia` launcher ────────────────────────────────
+// ─── 3. stage the `zonia-world` launcher ───────────────────────────────────
 console.log("\nStaging launcher package...");
 {
-  const pkgDir = join(distNpm, "zonia");
+  const pkgDir = join(distNpm, "zonia-world");
   mkdirSync(pkgDir, { recursive: true });
 
   const cliJs = `#!/usr/bin/env node
-// zonia launcher: locate the platform-specific sub-package binary and exec it.
+// zonia-world launcher: locate the platform-specific sub-package binary and exec it.
 
 const { spawn } = require("node:child_process");
 const path = require("node:path");
@@ -186,7 +186,7 @@ try {
 
 if (!binaryPath || !fs.existsSync(binaryPath)) {
   process.stderr.write(
-    \`\\nzonia: no prebuilt binary available for \${platform}-\${arch}.\\n\` +
+    \`\\nzonia-world: no prebuilt binary available for \${platform}-\${arch}.\\n\` +
       \`Supported: darwin-arm64, darwin-x64, linux-x64, linux-arm64, win32-x64.\\n\\n\`,
   );
   process.exit(1);
@@ -200,7 +200,7 @@ child.on("exit", (code, signal) =>
   signal ? process.kill(process.pid, signal) : process.exit(code ?? 0),
 );
 child.on("error", (err) => {
-  process.stderr.write(\`zonia: failed to launch binary: \${err.message}\\n\`);
+  process.stderr.write(\`zonia-world: failed to launch binary: \${err.message}\\n\`);
   process.exit(1);
 });
 `;
@@ -216,7 +216,7 @@ child.on("error", (err) => {
     join(pkgDir, "package.json"),
     JSON.stringify(
       {
-        name: "zonia",
+        name: "zonia-world",
         version: VERSION,
         description: "a world. enter the void.",
         keywords: ["zonia", "tui", "chat", "mud", "phoenix", "opentui"],
@@ -224,7 +224,7 @@ child.on("error", (err) => {
         bugs: { url: BUGS_URL },
         repository: { type: "git", url: REPO_URL },
         license: "MIT",
-        bin: { zonia: "cli.js" },
+        bin: { "zonia-world": "cli.js" },
         files: ["cli.js", "README.md"],
         optionalDependencies: optionalDeps,
         engines: { node: ">=18" },
@@ -238,12 +238,12 @@ child.on("error", (err) => {
 
   writeFileSync(
     join(pkgDir, "README.md"),
-    `# zonia
+    `# zonia-world
 
 a world. enter the void.
 
 \`\`\`sh
-npx zonia
+npx zonia-world
 \`\`\`
 
 Pick a name on first run, and you're in. Names are unique, forever, and
@@ -251,10 +251,10 @@ local to your machine — lose your local data and the name is gone.
 
 ## Self-hosting
 
-By default zonia connects to \`${DEFAULT_SERVER}\`. Override with:
+By default zonia-world connects to \`${DEFAULT_SERVER}\`. Override with:
 
 \`\`\`sh
-ZONIA_SERVER=ws://localhost:4000/socket npx zonia
+ZONIA_SERVER=ws://localhost:4000/socket npx zonia-world
 \`\`\`
 
 ## Quit
@@ -266,7 +266,7 @@ ZONIA_SERVER=ws://localhost:4000/socket npx zonia
 ${HOMEPAGE}
 `,
   );
-  console.log(`  ✓ zonia`);
+  console.log(`  ✓ zonia-world`);
 }
 
 console.log("\nDone. Packages staged in dist/npm/");
