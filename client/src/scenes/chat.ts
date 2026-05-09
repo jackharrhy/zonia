@@ -1,5 +1,4 @@
 // Chat scene: ScrollBox of messages on top, status line, Input on the bottom.
-// Sticky-bottom scroll, so the latest message is always visible.
 
 import {
   BoxRenderable,
@@ -37,7 +36,6 @@ interface LoggedLine {
 }
 
 export function runChatScene(renderer: CliRenderer, identity: Identity): void {
-  // ── layout ────────────────────────────────────────────────────────────
   const root = new BoxRenderable(renderer, {
     flexGrow: 1,
     flexDirection: "column",
@@ -50,8 +48,6 @@ export function runChatScene(renderer: CliRenderer, identity: Identity): void {
     contentOptions: { flexDirection: "column" },
   });
 
-  // Tone for the status line, tracked separately so we can repaint on theme
-  // change without losing the current state.
   let statusTone: Tone = "muted";
   const statusLine = new TextRenderable(renderer, {
     content: ` ${identity.name} • connecting…`,
@@ -70,18 +66,13 @@ export function runChatScene(renderer: CliRenderer, identity: Identity): void {
   renderer.root.add(root);
   input.focus();
 
-  // Pin focus to the input. If anything else (a click, tab, etc.) takes
-  // focus, snap it back. The renderer fires FOCUSED_RENDERABLE whenever the
-  // focused element changes.
-  renderer.on(CliRenderEvents.FOCUSED_RENDERABLE, (focused: Renderable | null) => {
-    if (focused !== input) input.focus();
-  });
+  renderer.on(
+    CliRenderEvents.FOCUSED_RENDERABLE,
+    (focused: Renderable | null) => {
+      if (focused !== input) input.focus();
+    },
+  );
 
-  // ── helpers ───────────────────────────────────────────────────────────
-
-  // Each appended line keeps its semantic tone so we can repaint on theme
-  // toggle. The list grows unbounded for v1 — a chat-history cap can come
-  // later.
   const lines: LoggedLine[] = [];
 
   const appendLine = (content: string, tone: Tone = "fg") => {
@@ -101,13 +92,11 @@ export function runChatScene(renderer: CliRenderer, identity: Identity): void {
     return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
   };
 
-  // Repaint everything when the terminal flips dark↔light.
   onThemeChange(() => {
     statusLine.fg = theme.c[statusTone];
     for (const line of lines) line.text.fg = theme.c[line.tone];
   });
 
-  // ── socket ────────────────────────────────────────────────────────────
   const { socket, ready, onStatusChange } = connectAuthed(identity.key);
 
   onStatusChange((s) => {
@@ -147,7 +136,7 @@ export function runChatScene(renderer: CliRenderer, identity: Identity): void {
       for (const [userId, entry] of Object.entries(diff.joins)) {
         const meta = entry.metas[0];
         if (!meta) continue;
-        // Skip our own join — we already know we entered.
+        // Skip our own join
         if (meta.name === identity.name && !known.has(userId)) {
           known.set(userId, meta.name);
           continue;
@@ -191,7 +180,6 @@ export function runChatScene(renderer: CliRenderer, identity: Identity): void {
       const body = raw.trim();
       if (body === "") return;
       input.value = "";
-      // phoenix client buffers pushes until rejoined, so disconnects are fine.
       channel
         .push("say", { body })
         .receive("error", (resp: { reason?: string }) => {

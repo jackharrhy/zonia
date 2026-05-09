@@ -23,9 +23,7 @@ const ERROR_MESSAGES: Record<string, string> = {
 };
 
 export interface RegisterSceneOptions {
-  /** Pre-fill the name input (e.g. the failed --name from the CLI). */
   initialValue?: string;
-  /** Show this error line on first paint (e.g. why the auto-register failed). */
   initialError?: string;
 }
 
@@ -67,9 +65,10 @@ export function runRegisterScene(
     });
 
     const errorLine = new TextRenderable(renderer, {
-      content: options.initialError && options.initialError !== ""
-        ? options.initialError
-        : " ",
+      content:
+        options.initialError && options.initialError !== ""
+          ? options.initialError
+          : " ",
       fg: theme.c.error,
     });
 
@@ -83,13 +82,11 @@ export function runRegisterScene(
 
     input.focus();
 
-    // Pin focus to this input while the register scene is mounted.
     const refocus = (focused: Renderable | null) => {
       if (focused !== input) input.focus();
     };
     renderer.on(CliRenderEvents.FOCUSED_RENDERABLE, refocus);
 
-    // Repaint static text on theme change.
     const stopThemeWatch = onThemeChange(() => {
       line1.fg = theme.c.muted;
       line2.fg = theme.c.muted;

@@ -1,6 +1,3 @@
-// Local identity store: a single-row SQLite database under XDG_DATA_HOME.
-// Lose this file → lose the account. That is intentional for v1.
-
 import { Database } from "bun:sqlite";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -23,12 +20,9 @@ const APP_DIR_NAME = "zonia";
 const DB_FILE_NAME = "zonia.db";
 
 function dataDir(): string {
-  // Explicit override wins. Used by `just client <name>` to spin up isolated
-  // throwaway clients under tmp/clients/<name> for local testing.
   const override = process.env.ZONIA_DATA_DIR;
   if (override) return override;
 
-  // XDG spec on Linux/macOS; %APPDATA% on Windows; sensible fallback otherwise.
   if (process.platform === "win32" && process.env.APPDATA) {
     return join(process.env.APPDATA, APP_DIR_NAME);
   }
@@ -39,7 +33,6 @@ function dataDir(): string {
 
 // Migrations are append-only. Bump SCHEMA_VERSION and add a function.
 const migrations: Array<(db: Database) => void> = [
-  // v1: identity table.
   (db) => {
     db.run(`
       CREATE TABLE identity (
@@ -53,8 +46,9 @@ const migrations: Array<(db: Database) => void> = [
 ];
 
 function migrate(db: Database): void {
-  const current = (db.query("PRAGMA user_version").get() as { user_version: number })
-    .user_version;
+  const current = (
+    db.query("PRAGMA user_version").get() as { user_version: number }
+  ).user_version;
   for (let v = current; v < migrations.length; v++) {
     db.transaction(() => {
       migrations[v]!(db);
@@ -73,9 +67,9 @@ export function openIdentityStore(): IdentityStore {
 
   return {
     load() {
-      const row = db.query("SELECT name, key, created_at FROM identity WHERE id = 1").get() as
-        | { name: string; key: string; created_at: string }
-        | null;
+      const row = db
+        .query("SELECT name, key, created_at FROM identity WHERE id = 1")
+        .get() as { name: string; key: string; created_at: string } | null;
       if (!row) return null;
       return { name: row.name, key: row.key, createdAt: row.created_at };
     },
