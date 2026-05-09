@@ -14,6 +14,7 @@ import {
 import type { Channel, Socket } from "phoenix";
 import type { Identity } from "../lib/identity.js";
 import { connectAuthed } from "../lib/socket.js";
+import { onThemeChange, theme, type Tone } from "../lib/theme.js";
 
 interface PresenceState {
   [userId: string]: { metas: Array<{ name: string; online_at: number }> };
@@ -30,6 +31,11 @@ interface SayPayload {
   at: number;
 }
 
+interface LoggedLine {
+  text: TextRenderable;
+  tone: Tone;
+}
+
 export function runChatScene(renderer: CliRenderer, identity: Identity): void {
   // ── layout ────────────────────────────────────────────────────────────
   const root = new BoxRenderable(renderer, {
@@ -44,9 +50,12 @@ export function runChatScene(renderer: CliRenderer, identity: Identity): void {
     contentOptions: { flexDirection: "column" },
   });
 
+  // Tone for the status line, tracked separately so we can repaint on theme
+  // change without losing the current state.
+  let statusTone: Tone = "muted";
   const statusLine = new TextRenderable(renderer, {
     content: ` ${identity.name} • connecting…`,
-    fg: "#6b7280",
+    fg: theme.c[statusTone],
   });
 
   const input = new InputRenderable(renderer, {
@@ -69,13 +78,22 @@ export function runChatScene(renderer: CliRenderer, identity: Identity): void {
   });
 
   // ── helpers ───────────────────────────────────────────────────────────
-  const appendLine = (content: string, fg = "#e5e7eb") => {
-    log.add(new TextRenderable(renderer, { content, fg }));
+
+  // Each appended line keeps its semantic tone so we can repaint on theme
+  // toggle. The list grows unbounded for v1 — a chat-history cap can come
+  // later.
+  const lines: LoggedLine[] = [];
+
+  const appendLine = (content: string, tone: Tone = "fg") => {
+    const text = new TextRenderable(renderer, { content, fg: theme.c[tone] });
+    log.add(text);
+    lines.push({ text, tone });
   };
 
-  const setStatus = (msg: string, fg = "#6b7280") => {
+  const setStatus = (msg: string, tone: Tone = "muted") => {
+    statusTone = tone;
     statusLine.content = ` ${identity.name} • ${msg}`;
-    statusLine.fg = fg;
+    statusLine.fg = theme.c[tone];
   };
 
   const formatTime = (epochSec: number) => {
@@ -83,12 +101,18 @@ export function runChatScene(renderer: CliRenderer, identity: Identity): void {
     return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
   };
 
+  // Repaint everything when the terminal flips dark↔light.
+  onThemeChange(() => {
+    statusLine.fg = theme.c[statusTone];
+    for (const line of lines) line.text.fg = theme.c[line.tone];
+  });
+
   // ── socket ────────────────────────────────────────────────────────────
   const { socket, ready, onStatusChange } = connectAuthed(identity.key);
 
   onStatusChange((s) => {
-    if (s === "connected") setStatus("connected", "#10b981");
-    else setStatus("reconnecting…", "#f59e0b");
+    if (s === "connected") setStatus("connected", "ok");
+    else setStatus("reconnecting…", "warn");
   });
 
   ready
@@ -97,11 +121,11 @@ export function runChatScene(renderer: CliRenderer, identity: Identity): void {
       if (err.message === "auth_rejected") {
         appendLine(
           "* the void does not recognize you. clear local data and re-enter.",
-          "#ef4444",
+          "error",
         );
-        setStatus("auth rejected", "#ef4444");
+        setStatus("auth rejected", "error");
       } else {
-        appendLine(`* connection failed: ${err.message}`, "#ef4444");
+        appendLine(`* connection failed: ${err.message}`, "error");
       }
     });
 
@@ -130,14 +154,14 @@ export function runChatScene(renderer: CliRenderer, identity: Identity): void {
         }
         if (!known.has(userId)) {
           known.set(userId, meta.name);
-          appendLine(`* ${meta.name} entered the void`, "#9ca3af");
+          appendLine(`* ${meta.name} entered the void`, "muted");
         }
       }
       for (const [userId, entry] of Object.entries(diff.leaves)) {
         const meta = entry.metas[0];
         if (!meta) continue;
         known.delete(userId);
-        appendLine(`* ${meta.name} vanished`, "#9ca3af");
+        appendLine(`* ${meta.name} vanished`, "muted");
       }
     });
 
@@ -146,18 +170,21 @@ export function runChatScene(renderer: CliRenderer, identity: Identity): void {
       const isMe = payload.name === identity.name;
       appendLine(
         `[${ts}] ${payload.name}: ${payload.body}`,
-        isMe ? "#60a5fa" : "#e5e7eb",
+        isMe ? "self" : "fg",
       );
     });
 
     channel
       .join()
       .receive("ok", () => {
-        appendLine(`* you entered the void as ${identity.name}`, "#10b981");
-        setStatus("connected", "#10b981");
+        appendLine(`* you entered the void as ${identity.name}`, "ok");
+        setStatus("connected", "ok");
       })
       .receive("error", (resp: { reason?: string }) => {
-        appendLine(`* could not enter the world: ${resp?.reason ?? "unknown"}`, "#ef4444");
+        appendLine(
+          `* could not enter the world: ${resp?.reason ?? "unknown"}`,
+          "error",
+        );
       });
 
     input.on(InputRenderableEvents.ENTER, (raw: string) => {
@@ -170,7 +197,7 @@ export function runChatScene(renderer: CliRenderer, identity: Identity): void {
         .receive("error", (resp: { reason?: string }) => {
           appendLine(
             `* message rejected: ${resp?.reason ?? "unknown"}`,
-            "#ef4444",
+            "error",
           );
         });
     });

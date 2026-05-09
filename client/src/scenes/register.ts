@@ -12,6 +12,7 @@ import {
 } from "@opentui/core";
 import { registerName, type RegisterResult } from "../lib/socket.js";
 import type { IdentityStore } from "../lib/identity.js";
+import { onThemeChange, theme } from "../lib/theme.js";
 
 const ERROR_MESSAGES: Record<string, string> = {
   name_invalid: "name must be 2–24 chars, letters/numbers/_/-",
@@ -50,11 +51,11 @@ export function runRegisterScene(
 
     const line1 = new TextRenderable(renderer, {
       content: "you stand at the edge of the void.",
-      fg: "#9ca3af",
+      fg: theme.c.muted,
     });
     const line2 = new TextRenderable(renderer, {
       content: "name yourself, and step in.",
-      fg: "#9ca3af",
+      fg: theme.c.muted,
     });
     const spacer = new BoxRenderable(renderer, { height: 1 });
 
@@ -69,7 +70,7 @@ export function runRegisterScene(
       content: options.initialError && options.initialError !== ""
         ? options.initialError
         : " ",
-      fg: "#ff6b6b",
+      fg: theme.c.error,
     });
 
     panel.add(line1);
@@ -87,6 +88,13 @@ export function runRegisterScene(
       if (focused !== input) input.focus();
     };
     renderer.on(CliRenderEvents.FOCUSED_RENDERABLE, refocus);
+
+    // Repaint static text on theme change.
+    const stopThemeWatch = onThemeChange(() => {
+      line1.fg = theme.c.muted;
+      line2.fg = theme.c.muted;
+      errorLine.fg = theme.c.error;
+    });
 
     let busy = false;
     const setError = (msg: string) => {
@@ -111,6 +119,7 @@ export function runRegisterScene(
       if (result.ok) {
         store.save({ name: result.result.name, key: result.result.key });
         renderer.off(CliRenderEvents.FOCUSED_RENDERABLE, refocus);
+        stopThemeWatch();
         renderer.root.remove(root.id);
         resolve(result.result);
       } else {

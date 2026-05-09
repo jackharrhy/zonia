@@ -1,5 +1,6 @@
 import { createCliRenderer } from "@opentui/core";
 import { openIdentityStore } from "./lib/identity.js";
+import { initTheme } from "./lib/theme.js";
 import { runRegisterScene } from "./scenes/register.js";
 import { runChatScene } from "./scenes/chat.js";
 import { registerName } from "./lib/socket.js";
@@ -31,6 +32,10 @@ const renderer = await createCliRenderer({
   // register scenes both want their text field permanently focused.
   autoFocus: false,
 });
+
+// Pick a palette before anything paints. Blocks briefly for the terminal's
+// theme reply; falls through to the dark default if the terminal is silent.
+await initTheme(renderer);
 
 const store = openIdentityStore();
 let identity = store.load();
