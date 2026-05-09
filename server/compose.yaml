@@ -1,8 +1,12 @@
 services:
   zonia:
+    # Build context is the repo root so the Dockerfile can pull in client/
+    # alongside server/. Run via `just docker-up` from the repo root, or
+    # `docker compose -f server/compose.yaml up` (compose resolves relative
+    # paths from the file's directory, so `..` walks to repo root).
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: server/Dockerfile
     image: ghcr.io/jackharrhy/zonia:local
     volumes:
       - ./data:/data

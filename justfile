@@ -46,18 +46,20 @@ build-npm:
 publish-npm: build-npm
     ./scripts/publish-npm.sh
 
-# Build the server's prod docker image locally.
+# Build the server's prod docker image locally. Build context is the repo
+# root so the same image bakes the Phoenix release AND all five client
+# binaries from client/.
 docker-build:
-    cd server && docker build -t ghcr.io/jackharrhy/zonia:local .
+    docker build -f server/Dockerfile -t ghcr.io/jackharrhy/zonia:local .
 
 # Run the server image via docker compose. Mounts server/data/ for the DB.
 # Stop with ctrl-c (or `docker compose down` from server/).
 docker-up:
-    cd server && docker compose up --build
+    docker compose -f server/compose.yaml up --build
 
 # Stop the compose stack.
 docker-down:
-    cd server && docker compose down
+    docker compose -f server/compose.yaml down
 
 # Wipe a single throwaway client's local data so it can re-register.
 reset-client name:

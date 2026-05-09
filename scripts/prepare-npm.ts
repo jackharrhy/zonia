@@ -1,11 +1,17 @@
 #!/usr/bin/env bun
-// Build per-platform binaries and stage all npm packages into ./dist/npm/.
-// Each subdirectory there is a publishable package.
+// Stage the npm launcher package into ./dist/npm/zonia-world/.
 //
-// Layout produced:
-//   dist/binaries/                          → raw compiled binaries
-//   dist/npm/zonia/                         → unscoped launcher (Node, optionalDependencies)
-//   dist/npm/@zonia-world/zonia-<plat>-<arch>/  → per-platform binary holder packages
+// The launcher is a tiny Node script. At runtime it:
+//   1. Detects the platform/arch.
+//   2. GETs <server>/releases/manifest.json.
+//   3. Looks in $XDG_CACHE_HOME/zonia-world/<platform>-<arch>/ for a binary
+//      with the manifest's expected sha256.
+//   4. If missing or wrong hash, downloads the binary, verifies the hash,
+//      atomically replaces the cached copy.
+//   5. Execs the cached binary, forwarding argv.
+//
+// Binaries themselves live on the server (built into the Docker image and
+// served at /releases/*). There is no per-platform npm package any more.
 //
 // Usage:
 //   bun scripts/prepare-npm.ts
@@ -14,7 +20,6 @@
 
 import {
   chmodSync,
-  copyFileSync,
   mkdirSync,
   readFileSync,
   rmSync,
@@ -26,219 +31,239 @@ import { fileURLToPath } from "node:url";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, "..");
 const distNpm = join(repoRoot, "dist", "npm");
-const distBin = join(repoRoot, "dist", "binaries");
 const clientDir = join(repoRoot, "client");
 
-const SCOPE = "@zonia-world";
 const HOMEPAGE = "https://github.com/jackharrhy/zonia";
 const REPO_URL = "git+https://github.com/jackharrhy/zonia.git";
 const BUGS_URL = "https://github.com/jackharrhy/zonia/issues";
-const DEFAULT_SERVER = "wss://zonia.harrhy.xyz/socket";
+const DEFAULT_SERVER_HTTP = "https://zonia.harrhy.xyz";
 
-interface Target {
-  platform: "darwin" | "linux" | "win32";
-  arch: "x64" | "arm64";
-  bunTarget: string;
-  exeSuffix?: string;
-}
-
-const TARGETS: Target[] = [
-  { platform: "darwin", arch: "arm64", bunTarget: "bun-darwin-arm64" },
-  { platform: "darwin", arch: "x64", bunTarget: "bun-darwin-x64" },
-  { platform: "linux", arch: "x64", bunTarget: "bun-linux-x64" },
-  { platform: "linux", arch: "arm64", bunTarget: "bun-linux-arm64" },
-  { platform: "win32", arch: "x64", bunTarget: "bun-windows-x64", exeSuffix: ".exe" },
-];
-
-// Pull version from client/package.json so there's one source of truth.
 const clientPkg = JSON.parse(
   readFileSync(join(clientDir, "package.json"), "utf8"),
 ) as { version?: string };
-const VERSION = clientPkg.version ?? "0.1.0";
+const VERSION = clientPkg.version ?? "0.2.0";
 
-console.log(`Building zonia v${VERSION}`);
-console.log(`Default server (baked in): ${DEFAULT_SERVER}`);
+console.log(`Staging zonia-world launcher v${VERSION}`);
+console.log(`Default server: ${DEFAULT_SERVER_HTTP}`);
 
-// ─── clean output ───────────────────────────────────────────────────────────
 rmSync(distNpm, { recursive: true, force: true });
-rmSync(distBin, { recursive: true, force: true });
 mkdirSync(distNpm, { recursive: true });
-mkdirSync(distBin, { recursive: true });
 
-// ─── 0. ensure every target's @opentui/core-<plat>-<arch> is materialized ──
-// `bun install` filters optionalDependencies by host platform by default, so
-// cross-compilation needs the other platforms' native binaries explicitly
-// installed via `bun install --os=... --cpu=...`. Idempotent.
-console.log("Ensuring all opentui platform binaries are installed...");
-for (const t of TARGETS) {
-  const proc = Bun.spawnSync({
-    cmd: ["bun", "install", `--os=${t.platform}`, `--cpu=${t.arch}`],
-    cwd: clientDir,
-    stdio: ["inherit", "pipe", "pipe"],
-  });
-  if (proc.exitCode !== 0) {
-    console.error(`  ✗ failed to install for ${t.platform}-${t.arch}`);
-    console.error(proc.stderr?.toString());
-    process.exit(1);
-  }
-}
+const pkgDir = join(distNpm, "zonia-world");
+mkdirSync(pkgDir, { recursive: true });
 
-// ─── 1. compile per-platform binaries ──────────────────────────────────────
-console.log("\nBuilding per-platform binaries...");
-for (const t of TARGETS) {
-  const exeName = `zonia-${t.platform}-${t.arch}${t.exeSuffix ?? ""}`;
-  const outfile = join(distBin, exeName);
-  console.log(`  → ${exeName}`);
-  const proc = Bun.spawnSync({
-    cmd: [
-      "bun",
-      "build",
-      "--compile",
-      `--target=${t.bunTarget}`,
-      `--define=__ZONIA_BAKED_SERVER__=${JSON.stringify(DEFAULT_SERVER)}`,
-      "src/index.ts",
-      "--outfile",
-      outfile,
-    ],
-    cwd: clientDir,
-    stdio: ["inherit", "pipe", "pipe"],
-  });
-  if (proc.exitCode !== 0) {
-    console.error(`  ✗ failed: ${exeName}`);
-    console.error(proc.stderr?.toString());
-    process.exit(1);
-  }
-}
+const cliJs = `#!/usr/bin/env node
+// zonia-world launcher.
+//
+// Fetches the latest client binary from the zonia server (or uses a cached
+// copy if the server's sha256 matches what's already on disk), then execs
+// it. No bundled binaries — the source of truth lives server-side.
+//
+// Override the server with ZONIA_SERVER_HTTP (e.g. for self-hosting):
+//   ZONIA_SERVER_HTTP=http://localhost:4000 npx zonia-world
 
-// ─── 2. stage per-platform binary holder packages ──────────────────────────
-console.log("\nStaging binary holder packages...");
-for (const t of TARGETS) {
-  const pkgName = `${SCOPE}/zonia-${t.platform}-${t.arch}`;
-  const pkgDir = join(distNpm, "@zonia-world", `zonia-${t.platform}-${t.arch}`);
-  const binDir = join(pkgDir, "bin");
-  mkdirSync(binDir, { recursive: true });
+"use strict";
 
-  const exeName = `zonia-${t.platform}-${t.arch}${t.exeSuffix ?? ""}`;
-  copyFileSync(join(distBin, exeName), join(binDir, exeName));
-  if (!t.exeSuffix) chmodSync(join(binDir, exeName), 0o755);
-
-  writeFileSync(
-    join(pkgDir, "package.json"),
-    JSON.stringify(
-      {
-        name: pkgName,
-        version: VERSION,
-        description: `Prebuilt zonia binary for ${t.platform}-${t.arch}`,
-        license: "MIT",
-        homepage: HOMEPAGE,
-        repository: { type: "git", url: REPO_URL },
-        files: ["bin/"],
-        os: [t.platform],
-        cpu: [t.arch],
-      },
-      null,
-      2,
-    ) + "\n",
-  );
-
-  writeFileSync(
-    join(pkgDir, "README.md"),
-    `# ${pkgName}
-
-Prebuilt \`${t.platform}-${t.arch}\` binary for [zonia-world](https://www.npmjs.com/package/zonia-world).
-
-You probably want the parent package instead:
-
-\`\`\`sh
-npx zonia-world
-\`\`\`
-`,
-  );
-  console.log(`  ✓ ${pkgName}`);
-}
-
-// ─── 3. stage the `zonia-world` launcher ───────────────────────────────────
-console.log("\nStaging launcher package...");
-{
-  const pkgDir = join(distNpm, "zonia-world");
-  mkdirSync(pkgDir, { recursive: true });
-
-  const cliJs = `#!/usr/bin/env node
-// zonia-world launcher: locate the platform-specific sub-package binary and exec it.
-
-const { spawn } = require("node:child_process");
-const path = require("node:path");
 const fs = require("node:fs");
+const path = require("node:path");
+const os = require("node:os");
+const crypto = require("node:crypto");
+const { spawn } = require("node:child_process");
 
-const platform = process.platform;
-const arch = process.arch;
-const subPkg = \`@zonia-world/zonia-\${platform}-\${arch}\`;
-const binaryName =
-  platform === "win32"
-    ? \`zonia-\${platform}-\${arch}.exe\`
-    : \`zonia-\${platform}-\${arch}\`;
+const DEFAULT_SERVER_HTTP = ${JSON.stringify(DEFAULT_SERVER_HTTP)};
 
-let binaryPath;
-try {
-  const subPkgJson = require.resolve(\`\${subPkg}/package.json\`);
-  binaryPath = path.join(path.dirname(subPkgJson), "bin", binaryName);
-} catch {}
-
-if (!binaryPath || !fs.existsSync(binaryPath)) {
-  process.stderr.write(
-    \`\\nzonia-world: no prebuilt binary available for \${platform}-\${arch}.\\n\` +
-      \`Supported: darwin-arm64, darwin-x64, linux-x64, linux-arm64, win32-x64.\\n\\n\`,
-  );
-  process.exit(1);
+function serverHttpBase() {
+  const explicit = process.env.ZONIA_SERVER_HTTP;
+  if (explicit) return explicit.replace(/\\/$/, "");
+  // Fall back to converting wss://host/socket → https://host if the user only
+  // set ZONIA_SERVER (the websocket env var the binary itself reads).
+  const ws = process.env.ZONIA_SERVER;
+  if (ws) {
+    try {
+      const u = new URL(ws);
+      const proto = u.protocol === "wss:" ? "https:" : "http:";
+      return proto + "//" + u.host;
+    } catch (_) {
+      // fall through
+    }
+  }
+  return DEFAULT_SERVER_HTTP;
 }
 
-const child = spawn(binaryPath, process.argv.slice(2), {
-  stdio: "inherit",
-  windowsHide: false,
-});
-child.on("exit", (code, signal) =>
-  signal ? process.kill(process.pid, signal) : process.exit(code ?? 0),
-);
-child.on("error", (err) => {
-  process.stderr.write(\`zonia-world: failed to launch binary: \${err.message}\\n\`);
-  process.exit(1);
-});
-`;
-  writeFileSync(join(pkgDir, "cli.js"), cliJs);
-  chmodSync(join(pkgDir, "cli.js"), 0o755);
+function cacheDir() {
+  // XDG cache spec on Linux/macOS; %LOCALAPPDATA% on Windows; sensible
+  // fallback otherwise.
+  if (process.platform === "win32" && process.env.LOCALAPPDATA) {
+    return path.join(process.env.LOCALAPPDATA, "zonia-world", "Cache");
+  }
+  const xdg = process.env.XDG_CACHE_HOME;
+  if (xdg) return path.join(xdg, "zonia-world");
+  return path.join(os.homedir(), ".cache", "zonia-world");
+}
 
-  const optionalDeps: Record<string, string> = {};
-  for (const t of TARGETS) {
-    optionalDeps[`${SCOPE}/zonia-${t.platform}-${t.arch}`] = VERSION;
+function platformKey() {
+  return process.platform + "-" + process.arch;
+}
+
+function binaryName(plat) {
+  return process.platform === "win32" ? "zonia-" + plat + ".exe" : "zonia-" + plat;
+}
+
+function fetchJson(url, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), timeoutMs);
+    fetch(url, { signal: ac.signal })
+      .then(async (res) => {
+        clearTimeout(timer);
+        if (!res.ok) {
+          reject(new Error("HTTP " + res.status + " for " + url));
+          return;
+        }
+        try {
+          resolve(await res.json());
+        } catch (e) {
+          reject(e);
+        }
+      })
+      .catch((e) => {
+        clearTimeout(timer);
+        reject(e);
+      });
+  });
+}
+
+async function downloadBinary(url, destPath, expectedSha) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error("HTTP " + res.status + " downloading " + url);
+  if (!res.body) throw new Error("empty body downloading " + url);
+
+  const tmpPath = destPath + ".tmp." + process.pid;
+  const fd = fs.openSync(tmpPath, "w");
+  const hash = crypto.createHash("sha256");
+  try {
+    const reader = res.body.getReader();
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      fs.writeSync(fd, value);
+      hash.update(value);
+    }
+  } finally {
+    fs.closeSync(fd);
   }
 
-  writeFileSync(
-    join(pkgDir, "package.json"),
-    JSON.stringify(
-      {
-        name: "zonia-world",
-        version: VERSION,
-        description: "a world. enter the void.",
-        keywords: ["zonia", "tui", "chat", "mud", "phoenix", "opentui"],
-        homepage: HOMEPAGE,
-        bugs: { url: BUGS_URL },
-        repository: { type: "git", url: REPO_URL },
-        license: "MIT",
-        bin: { "zonia-world": "cli.js" },
-        files: ["cli.js", "README.md"],
-        optionalDependencies: optionalDeps,
-        engines: { node: ">=18" },
-        os: ["darwin", "linux", "win32"],
-        cpu: ["x64", "arm64"],
-      },
-      null,
-      2,
-    ) + "\n",
-  );
+  const actual = hash.digest("hex");
+  if (actual !== expectedSha) {
+    fs.rmSync(tmpPath, { force: true });
+    throw new Error(
+      "sha256 mismatch downloading " + url + ": expected " + expectedSha + ", got " + actual,
+    );
+  }
 
-  writeFileSync(
-    join(pkgDir, "README.md"),
-    `# zonia-world
+  // Atomic-ish replace. Last writer wins; harmless because they're writing
+  // the same verified bytes.
+  fs.renameSync(tmpPath, destPath);
+  if (process.platform !== "win32") fs.chmodSync(destPath, 0o755);
+}
+
+function sha256File(p) {
+  const hash = crypto.createHash("sha256");
+  hash.update(fs.readFileSync(p));
+  return hash.digest("hex");
+}
+
+async function resolveBinary() {
+  const plat = platformKey();
+  const dir = path.join(cacheDir(), plat);
+  fs.mkdirSync(dir, { recursive: true });
+  const binPath = path.join(dir, binaryName(plat));
+
+  const server = serverHttpBase();
+  let manifest = null;
+  try {
+    manifest = await fetchJson(server + "/releases/manifest.json", 5000);
+  } catch (e) {
+    // Manifest fetch failed. If we have a cached binary, run it; otherwise
+    // explode with a useful error.
+    if (fs.existsSync(binPath)) {
+      process.stderr.write(
+        "zonia-world: could not reach " + server + " (" + e.message + "), using cached binary.\\n",
+      );
+      return binPath;
+    }
+    throw new Error(
+      "could not reach " + server + " and no cached binary on disk: " + e.message,
+    );
+  }
+
+  const entry = manifest && manifest.binaries && manifest.binaries[plat];
+  if (!entry || !entry.sha256) {
+    throw new Error("no binary for " + plat + " in manifest from " + server);
+  }
+
+  const expected = entry.sha256;
+  if (fs.existsSync(binPath)) {
+    const actual = sha256File(binPath);
+    if (actual === expected) return binPath;
+    // Cached but stale. Fall through to re-download.
+  }
+
+  process.stderr.write("zonia-world: fetching latest " + plat + " binary…\\n");
+  await downloadBinary(server + "/releases/" + binaryName(plat), binPath, expected);
+  return binPath;
+}
+
+(async () => {
+  let binPath;
+  try {
+    binPath = await resolveBinary();
+  } catch (e) {
+    process.stderr.write("zonia-world: " + e.message + "\\n");
+    process.exit(1);
+  }
+
+  const child = spawn(binPath, process.argv.slice(2), {
+    stdio: "inherit",
+    windowsHide: false,
+  });
+  child.on("exit", (code, signal) =>
+    signal ? process.kill(process.pid, signal) : process.exit(code === null ? 0 : code),
+  );
+  child.on("error", (err) => {
+    process.stderr.write("zonia-world: failed to launch binary: " + err.message + "\\n");
+    process.exit(1);
+  });
+})();
+`;
+
+writeFileSync(join(pkgDir, "cli.js"), cliJs);
+chmodSync(join(pkgDir, "cli.js"), 0o755);
+
+writeFileSync(
+  join(pkgDir, "package.json"),
+  JSON.stringify(
+    {
+      name: "zonia-world",
+      version: VERSION,
+      description: "a world. enter the void.",
+      keywords: ["zonia", "tui", "chat", "mud", "phoenix", "opentui"],
+      homepage: HOMEPAGE,
+      bugs: { url: BUGS_URL },
+      repository: { type: "git", url: REPO_URL },
+      license: "MIT",
+      bin: { "zonia-world": "cli.js" },
+      files: ["cli.js", "README.md"],
+      engines: { node: ">=18" },
+    },
+    null,
+    2,
+  ) + "\n",
+);
+
+writeFileSync(
+  join(pkgDir, "README.md"),
+  `# zonia-world
 
 a world. enter the void.
 
@@ -246,14 +271,20 @@ a world. enter the void.
 npx zonia-world
 \`\`\`
 
-Pick a name on first run, and you're in. Names are unique, forever, and
-local to your machine — lose your local data and the name is gone.
+The launcher fetches the current client binary from \`${DEFAULT_SERVER_HTTP}\`
+on first run, caches it under your XDG cache dir, and exec's it. Subsequent
+runs check the server's \`releases/manifest.json\` for a new sha256; if
+nothing's changed, the cached binary is reused.
 
 ## Self-hosting
 
-By default zonia-world connects to \`${DEFAULT_SERVER}\`. Override with:
+Override the server with either env var (the launcher accepts both):
 
 \`\`\`sh
+# explicit HTTP base
+ZONIA_SERVER_HTTP=http://localhost:4000 npx zonia-world
+
+# or the websocket URL the binary itself reads
 ZONIA_SERVER=ws://localhost:4000/socket npx zonia-world
 \`\`\`
 
@@ -265,9 +296,7 @@ ZONIA_SERVER=ws://localhost:4000/socket npx zonia-world
 
 ${HOMEPAGE}
 `,
-  );
-  console.log(`  ✓ zonia-world`);
-}
+);
 
-console.log("\nDone. Packages staged in dist/npm/");
-console.log("To publish:  ./scripts/publish-npm.sh");
+console.log(`  ✓ zonia-world (${pkgDir})`);
+console.log("\nDone. To publish:  ./scripts/publish-npm.sh");

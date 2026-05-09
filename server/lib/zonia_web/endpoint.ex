@@ -19,6 +19,10 @@ defmodule ZoniaWeb.Endpoint do
     only: ZoniaWeb.static_paths(),
     raise_on_missing_only: code_reloading?
 
+  # Serves /releases/* from the directory configured by ZONIA_RELEASES_DIR.
+  # Powers `npx zonia-world`'s self-update check.
+  plug ZoniaWeb.Plugs.Releases
+
   if code_reloading? do
     plug Phoenix.CodeReloader
     plug Phoenix.Ecto.CheckRepoStatus, otp_app: :zonia

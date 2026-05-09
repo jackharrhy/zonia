@@ -6,6 +6,14 @@ end
 
 config :zonia, ZoniaWeb.Endpoint, http: [port: String.to_integer(System.get_env("PORT", "4000"))]
 
+# Directory of compiled client binaries + manifest.json. The Dockerfile
+# stages these at /app/releases/. When unset, /releases/* is unmapped
+# (the launcher will see a 404 and fall back to its cache or fail with a
+# clear error).
+if releases_dir = System.get_env("ZONIA_RELEASES_DIR") do
+  config :zonia, :releases_dir, releases_dir
+end
+
 if config_env() == :prod do
   database_path =
     System.get_env("ZONIA_DATABASE") ||

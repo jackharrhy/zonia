@@ -1,0 +1,32 @@
+# Server-side build artefacts and runtime data
+server/_build/
+server/deps/
+server/*.beam
+server/*.db
+server/*.db-shm
+server/*.db-wal
+server/data/
+server/cover/
+server/test/
+
+# Client-side build artefacts and dev junk
+client/node_modules/
+client/dist/
+dist/
+
+# Repo-wide dev/test data + tmp client instances
+tmp/
+
+# Editor / OS junk
+.DS_Store
+**/.vscode/
+**/.elixir_ls/
+
+# VCS / docs / CI metadata don't belong in the image
+.git/
+.github/
+*.md
+LICENSE
+
+# Other host configs
+infra/
