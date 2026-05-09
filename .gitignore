@@ -3,3 +3,7 @@
 
 # Build output for npm publishing.
 /dist/
+
+# Local prod-like server data (compose.yaml mounts ./data into the container)
+/server/data/
+/server/.env

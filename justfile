@@ -46,6 +46,19 @@ build-npm:
 publish-npm: build-npm
     ./scripts/publish-npm.sh
 
+# Build the server's prod docker image locally.
+docker-build:
+    cd server && docker build -t ghcr.io/jackharrhy/zonia:local .
+
+# Run the server image via docker compose. Mounts server/data/ for the DB.
+# Stop with ctrl-c (or `docker compose down` from server/).
+docker-up:
+    cd server && docker compose up --build
+
+# Stop the compose stack.
+docker-down:
+    cd server && docker compose down
+
 # Wipe a single throwaway client's local data so it can re-register.
 reset-client name:
     rm -rf tmp/clients/{{name}}

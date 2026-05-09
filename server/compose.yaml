@@ -1,0 +1,20 @@
+services:
+  zonia:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ghcr.io/jackharrhy/zonia:local
+    volumes:
+      - ./data:/data
+    environment:
+      - ZONIA_DATABASE=/data/zonia.db
+      - PHX_HOST=zonia.harrhy.xyz
+      - PORT=4000
+      # Generate a real one with `mix phx.gen.secret` — this default is fine
+      # for kicking the tyres locally, but DO NOT use it for anything public.
+      - SECRET_KEY_BASE=local-development-secret-key-base-at-least-sixty-four-characters-long-aaaaaaaaaaaaaaaaaaaaa
+    ports:
+      - 127.0.0.1:4000:4000
+    env_file:
+      - .env
+    restart: unless-stopped
