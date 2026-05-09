@@ -67,12 +67,16 @@ ENV MIX_ENV=prod
 # Where the SQLite DB lives. The deployer should mount a volume here.
 ENV ZONIA_DATABASE=/data/zonia.db
 
-# Drop the release into the container with non-root ownership.
-COPY --from=builder --chown=nobody:root /app/_build/${MIX_ENV}/rel/zonia ./
-
-USER nobody
+# Drop the release into the container.
+#
+# We intentionally do NOT switch to USER nobody. The container writes to a
+# bind-mounted /data volume whose host-side ownership matches the deploy
+# user (UID 1000 on mug). Running as root inside the container avoids the
+# UID-mismatch dance with the host filesystem; this is the same pattern the
+# rest of the services on this host use.
+COPY --from=builder /app/_build/${MIX_ENV}/rel/zonia ./
 
 # Migrations run automatically on boot via Ecto.Migrator in the supervision
-# tree (it's gated on RELEASE_NAME, which the release sets). Calling
-# bin/migrate explicitly is also harmless if you want a belt-and-suspenders.
+# tree (gated on RELEASE_NAME, which the release sets). Calling bin/migrate
+# explicitly is also harmless if you want a belt-and-suspenders.
 CMD ["/app/bin/server"]
