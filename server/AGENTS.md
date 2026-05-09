@@ -1,9 +1,42 @@
-This is a web application written using the Phoenix web framework.
+This is the zonia server, a Phoenix application using Channels, Presence,
+and Ecto on SQLite.
 
 ## Project guidelines
 
-- Use `mix precommit` alias when you are done with all changes and fix any pending issues
-- Use the already included and available `:req` (`Req`) library for HTTP requests.
+- Use `mix precommit` alias when you are done with all changes and fix any
+  pending issues. Precommit runs `compile --warnings-as-errors`,
+  `deps.unlock --unused`, `format`, and `test` — all four must be clean.
+- Use the already included and available `:req` (`Req`) library for HTTP
+  requests.
+- New deps need a justification. We deliberately do **not** use `argon2_elixir`
+  (see decisions in `../AGENTS.md`).
+
+## Channel & socket conventions
+
+- The third arg to `connect/3` in tests is a **keyword list**, not a map, in
+  Phoenix 1.8 — pass `connect(UserSocket, %{"key" => key})`, no third arg.
+- New channel topics that require auth must pattern-match on
+  `%{assigns: %{authenticated: true}}` in their `join/3` head and return
+  `{:error, %{reason: "unauthenticated"}}` otherwise.
+- Use `push(socket, event, payload)` for pushes that go only to the joiner
+  (e.g., the initial `presence_state`). Use `broadcast!/3` for room-wide
+  fan-out. Don't accidentally `broadcast` what should be a `push`.
+- Server-side timestamps in payloads use `System.system_time(:second)`. The
+  client renders local time from that.
+
+## Test conventions
+
+- Use `Zonia.DataCase` for context tests, `ZoniaWeb.ChannelCase` for
+  socket/channel tests. Both wire up `Ecto.Adapters.SQL.Sandbox`.
+- Channel tests that use `Phoenix.Presence` must be `async: false` —
+  Presence shares state across processes for a given topic, so concurrent
+  tests joining the same topic see each other's diffs. Context tests are
+  `async: true`.
+- For broadcasts: `subscribe_and_join` then `assert_broadcast "event", payload`.
+  For server-pushes-to-joiner: `assert_push "event", payload`.
+- Don't sleep. Use `assert_receive` / `assert_push` / `assert_broadcast`
+  with the default timeout. If you need to wait for a process to handle
+  prior messages, use `:sys.get_state/1`.
 
 ## Elixir guidelines
 

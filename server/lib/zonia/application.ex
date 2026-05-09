@@ -12,6 +12,7 @@ defmodule Zonia.Application do
        repos: Application.fetch_env!(:zonia, :ecto_repos), skip: skip_migrations?()},
       {DNSCluster, query: Application.get_env(:zonia, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: Zonia.PubSub},
+      ZoniaWeb.Presence,
       ZoniaWeb.Endpoint
     ]
 

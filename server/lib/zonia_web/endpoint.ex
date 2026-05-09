@@ -1,6 +1,10 @@
 defmodule ZoniaWeb.Endpoint do
   use Phoenix.Endpoint, otp_app: :zonia
 
+  socket "/socket", ZoniaWeb.UserSocket,
+    websocket: true,
+    longpoll: false
+
   @session_options [
     store: :cookie,
     key: "_zonia_key",

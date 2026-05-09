@@ -1,0 +1,5 @@
+# Throwaway data dirs for `just client <name>` isolated test instances.
+/tmp/
+
+# Build output for npm publishing.
+/dist/
