@@ -4,9 +4,44 @@
 default:
     @just --list
 
-# Boot the Phoenix server (localhost:4000). Runs pending migrations first.
+# Boot the Phoenix server (localhost:4000) inside an iex REPL.
+#
+# Running under iex by default gives you an interactive shell in the
+# same terminal — so you can poke at state without a remote session:
+#
+#   iex(1)> :sys.get_state(Zonia.LobbyServer)
+#   iex(2)> Zonia.LobbyServer.list_rooms()
+#
+# The BEAM is named `zonia@127.0.0.1` with cookie `zoniadev` so
+# `just remsh` and `just rpc` can attach over distributed Erlang from
+# another terminal. Long names avoid macOS short-hostname weirdness.
 server:
-    cd server && mix ecto.migrate && mix phx.server
+    cd server && mix ecto.migrate && iex --name zonia@127.0.0.1 --cookie zoniadev -S mix phx.server
+
+# Attach a remote iex shell to a running `just server`. The server
+# must already be up. Ctrl+C twice to leave the remote shell; the
+# server keeps running.
+remsh:
+    iex --name remsh@127.0.0.1 --cookie zoniadev --remsh zonia@127.0.0.1
+
+# Run a single Elixir expression against the running server and print
+# the result. Non-interactive — useful for scripts or quick checks.
+#
+#   just rpc 'Zonia.LobbyServer.list_rooms()'
+#   just rpc ':sys.get_state(Zonia.LobbyServer)'
+#   just rpc 'Zonia.LobbyServer.leave_all(7)'
+#
+# The expression is evaluated on the remote node via :rpc.call into
+# Code.eval_string/1, so any well-formed Elixir snippet works.
+rpc expr:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    elixir --name rpc@127.0.0.1 --cookie zoniadev --eval "
+      case :rpc.call(:\"zonia@127.0.0.1\", Code, :eval_string, [\"{{ expr }}\"], 5000) do
+        {result, _bindings} -> IO.inspect(result)
+        {:badrpc, reason} -> IO.puts(\"rpc failed: \" <> inspect(reason)); System.halt(1)
+      end
+    "
 
 # Launch the OpenTUI client in dev mode.
 #

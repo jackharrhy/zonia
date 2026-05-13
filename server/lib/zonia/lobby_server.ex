@@ -105,6 +105,22 @@ defmodule Zonia.LobbyServer do
   end
 
   @doc """
+  Remove `user` from every room they're currently in.
+
+  Used by the LobbyChannel's `terminate/2` to clean up when a client
+  disconnects without explicitly leaving — otherwise a hosted room
+  would sit in the listing forever. Same host-leaves-closes-room
+  semantics as `leave_room/3`.
+
+  Returns the list of room codes the user was removed from, so the
+  caller can log or audit the cleanup.
+  """
+  @spec leave_all(GenServer.server(), integer()) :: [String.t()]
+  def leave_all(server \\ __MODULE__, user_id) do
+    GenServer.call(server, {:leave_all, user_id})
+  end
+
+  @doc """
   Host-initiated game start.
 
   Step 2: this only validates and replies. The actual GameServer spawn
@@ -221,6 +237,40 @@ defmodule Zonia.LobbyServer do
             {:reply, :ok, new_state}
         end
     end
+  end
+
+  def handle_call({:leave_all, user_id}, _from, state) do
+    # Find every room the user is in. For each, apply leave semantics:
+    # host-leaves drops the room, otherwise we drop just that player and
+    # drop the room if empty.
+    {new_state, left_codes} =
+      Enum.reduce(state.rooms, {state, []}, fn {code, room}, {acc_state, acc_codes} ->
+        cond do
+          not Enum.any?(room.players, fn p -> p.user_id == user_id end) ->
+            {acc_state, acc_codes}
+
+          room.host_user_id == user_id ->
+            {drop_room(acc_state, code), [code | acc_codes]}
+
+          true ->
+            remaining = Enum.reject(room.players, fn p -> p.user_id == user_id end)
+
+            next_state =
+              if remaining == [] do
+                drop_room(acc_state, code)
+              else
+                put_room(acc_state, %{room | players: remaining})
+              end
+
+            {next_state, [code | acc_codes]}
+        end
+      end)
+
+    if left_codes != [] do
+      broadcast_change()
+    end
+
+    {:reply, Enum.reverse(left_codes), new_state}
   end
 
   def handle_call({:start_game, user, code}, _from, state) do

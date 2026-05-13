@@ -204,6 +204,59 @@ defmodule Zonia.LobbyServerTest do
     end
   end
 
+  describe "leave_all/2" do
+    test "returns [] and is a no-op when the user is in no room", %{server: server} do
+      assert LobbyServer.leave_all(server, 999) == []
+
+      # No broadcast either — the listing didn't actually change.
+      refute_received :room_listing_changed
+    end
+
+    test "drops the user from every room they're in (single room)", %{server: server} do
+      {:ok, room} = LobbyServer.create_room(server, user(1, "alice"))
+      {:ok, _} = LobbyServer.join_room(server, user(2, "bob"), room.code)
+      drain_broadcasts()
+
+      assert [code] = LobbyServer.leave_all(server, 2)
+      assert code == room.code
+      assert_broadcast!()
+
+      # Bob is gone, alice still in.
+      {:ok, after_leave} = LobbyServer.fetch_room(server, room.code)
+      assert Enum.map(after_leave.players, & &1.user_id) == [1]
+    end
+
+    test "host disconnect closes the room", %{server: server} do
+      {:ok, room} = LobbyServer.create_room(server, user(1, "alice"))
+      {:ok, _} = LobbyServer.join_room(server, user(2, "bob"), room.code)
+      drain_broadcasts()
+
+      assert [returned_code] = LobbyServer.leave_all(server, 1)
+      assert returned_code == room.code
+
+      assert :error = LobbyServer.fetch_room(server, room.code)
+      assert LobbyServer.list_rooms(server) == []
+      assert_broadcast!()
+    end
+
+    test "broadcast fires once even if user was in multiple rooms", %{server: server} do
+      # User 1 hosts one room and joins another (only possible because
+      # LobbyServer's :already_in_room check allows a host of room A to
+      # also be the host of room B — they were two separate create_room
+      # calls). Forge that state directly via LobbyServer.
+      {:ok, room1} = LobbyServer.create_room(server, user(1, "alice"))
+      {:ok, room2} = LobbyServer.create_room(server, user(1, "alice"))
+      drain_broadcasts()
+
+      left = LobbyServer.leave_all(server, 1)
+      assert Enum.sort(left) == Enum.sort([room1.code, room2.code])
+
+      # Exactly one broadcast, not one-per-room.
+      assert_broadcast!()
+      refute_received :room_listing_changed
+    end
+  end
+
   describe "start_game/3" do
     test "host can start with >=2 players; room is removed and broadcast fires",
          %{server: server} do

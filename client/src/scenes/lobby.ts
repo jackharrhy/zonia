@@ -1,27 +1,3 @@
-// Lobby scene. Where players gather after registration. Lists open rooms,
-// lets you create one or join someone else's by code, and (eventually)
-// transitions into a game when the host starts it.
-//
-// Layout:
-//
-//   ┌──────────────────────────────────────────────────────────────────┐
-//   │ zonia · alice                                                    │  ← top bar
-//   ├──────────────────────────┬───────────────────────────────────────┤
-//   │ rooms                    │ chat                                  │
-//   │  · BX7Q (alice)  1/4     │  [12:30] alice: hi                    │
-//   │  · MK9P (bob)    2/4     │  [12:30] bob: yo                      │
-//   │                          │                                       │
-//   │ your room: BX7Q          │                                       │
-//   │  · alice (host)          │                                       │
-//   │  · bob                   │                                       │
-//   │                          │ > _                                   │
-//   ├──────────────────────────┴───────────────────────────────────────┤
-//   │ [c]reate  [j]oin  [s]tart  [l]eave  [t]ype                       │  ← footer
-//   └──────────────────────────────────────────────────────────────────┘
-//
-// Step 2 wires every interaction except `start_game`, which the server
-// stubs out. Step 3 will hand off into the game scene when start succeeds.
-
 import {
   BoxRenderable,
   CliRenderEvents,
@@ -38,9 +14,6 @@ import { connectAuthed } from "../lib/socket.js";
 import { mountChatPane, type ChatPaneHandle } from "../components/chat-pane.js";
 import { onThemeChange, theme, type Tone } from "../lib/theme.js";
 
-// Mode for the focused input. Lobby is keyboard-driven: hotkeys for
-// actions, but `t` and `j` switch focus into a prompt that reads a line
-// of input (chat text or a room code).
 type Mode = "hotkeys" | "chat" | "join_code";
 
 interface RoomSummary {
@@ -61,67 +34,83 @@ export function runLobbyScene(
   identity: Identity,
 ): Promise<void> {
   return new Promise<void>((resolve) => {
-    // ── socket + lobby channel ──────────────────────────────────────────
     const { socket, ready, onStatusChange } = connectAuthed(identity.key);
 
-    // ── layout ──────────────────────────────────────────────────────────
     const root = new BoxRenderable(renderer, {
       flexGrow: 1,
       flexDirection: "column",
     });
 
-    const topBar = new TextRenderable(renderer, {
-      content: ` zonia · ${identity.name} · connecting…`,
+    const topBar = new BoxRenderable(renderer, {
+      border: true,
+      borderStyle: "rounded",
+      borderColor: theme.c.muted,
+      height: 3,
+      paddingLeft: 1,
+      paddingRight: 1,
+    });
+    const topBarText = new TextRenderable(renderer, {
+      content: `zonia · ${identity.name} · connecting…`,
       fg: theme.c.muted,
     });
+    topBar.add(topBarText);
 
     const body = new BoxRenderable(renderer, {
       flexGrow: 1,
       flexDirection: "row",
     });
 
-    // Left column — rooms list + your current room.
     const leftCol = new BoxRenderable(renderer, {
       flexDirection: "column",
-      width: 36,
-      paddingLeft: 1,
-      paddingRight: 1,
+      width: 38,
     });
 
-    const roomsHeader = new TextRenderable(renderer, {
-      content: " rooms",
-      fg: theme.c.muted,
+    const roomsBox = new BoxRenderable(renderer, {
+      border: true,
+      borderStyle: "rounded",
+      borderColor: theme.c.muted,
+      title: "rooms",
+      titleAlignment: "left",
+      flexGrow: 1,
+      paddingLeft: 1,
+      paddingRight: 1,
     });
     const roomsList = new ScrollBoxRenderable(renderer, {
       flexGrow: 1,
       contentOptions: { flexDirection: "column" },
     });
-    const youAreInHeader = new TextRenderable(renderer, {
-      content: " ",
-      fg: theme.c.muted,
-    });
-    const youAreInList = new BoxRenderable(renderer, {
-      flexDirection: "column",
-      height: 6,
-    });
+    roomsBox.add(roomsList);
 
-    leftCol.add(roomsHeader);
-    leftCol.add(roomsList);
-    leftCol.add(youAreInHeader);
-    leftCol.add(youAreInList);
-
-    // Right column — chat pane.
-    const rightCol = new BoxRenderable(renderer, {
-      flexGrow: 1,
-      flexDirection: "column",
+    const yourRoomBox = new BoxRenderable(renderer, {
+      border: true,
+      borderStyle: "rounded",
+      borderColor: theme.c.muted,
+      title: "your room",
+      titleAlignment: "left",
+      height: 8,
       paddingLeft: 1,
       paddingRight: 1,
     });
-    const chatHeader = new TextRenderable(renderer, {
-      content: " chat",
-      fg: theme.c.muted,
+    const yourRoomList = new BoxRenderable(renderer, {
+      flexDirection: "column",
+      flexGrow: 1,
     });
-    rightCol.add(chatHeader);
+    yourRoomBox.add(yourRoomList);
+
+    leftCol.add(roomsBox);
+    leftCol.add(yourRoomBox);
+
+    const rightCol = new BoxRenderable(renderer, {
+      flexGrow: 1,
+      flexDirection: "column",
+      border: true,
+      borderStyle: "rounded",
+      borderColor: theme.c.muted,
+      title: "chat",
+      titleAlignment: "left",
+      paddingLeft: 1,
+      paddingRight: 1,
+    });
     const chatPaneHost = new BoxRenderable(renderer, {
       flexGrow: 1,
       flexDirection: "column",
@@ -131,10 +120,17 @@ export function runLobbyScene(
     body.add(leftCol);
     body.add(rightCol);
 
-    // Prompt for hotkey-driven inputs (`j` for join code, `t` not strictly
-    // needed since chat-pane has its own input — see input routing below).
+    const promptBox = new BoxRenderable(renderer, {
+      border: true,
+      borderStyle: "rounded",
+      borderColor: theme.c.muted,
+      height: 3,
+      paddingLeft: 1,
+      paddingRight: 1,
+      flexDirection: "row",
+    });
     const promptLabel = new TextRenderable(renderer, {
-      content: " ",
+      content: "",
       fg: theme.c.muted,
     });
     const promptInput = new InputRenderable(renderer, {
@@ -142,6 +138,8 @@ export function runLobbyScene(
       maxLength: 24,
       width: "100%",
     });
+    promptBox.add(promptLabel);
+    promptBox.add(promptInput);
 
     const footer = new TextRenderable(renderer, {
       content: footerHints("hotkeys"),
@@ -150,12 +148,10 @@ export function runLobbyScene(
 
     root.add(topBar);
     root.add(body);
-    root.add(promptLabel);
-    root.add(promptInput);
+    root.add(promptBox);
     root.add(footer);
     renderer.root.add(root);
 
-    // ── state ───────────────────────────────────────────────────────────
     let mode: Mode = "hotkeys";
     let lobbyChannel: Channel | null = null;
     let chat: ChatPaneHandle | null = null;
@@ -165,8 +161,9 @@ export function runLobbyScene(
 
     const setTopBar = (status: string, tone: Tone) => {
       topBarTone = tone;
-      topBar.content = ` zonia · ${identity.name} · ${status}`;
-      topBar.fg = theme.c[tone];
+      topBarText.content = `zonia · ${identity.name} · ${status}`;
+      topBarText.fg = theme.c[tone];
+      topBar.borderColor = theme.c[tone];
     };
 
     const setMode = (next: Mode) => {
@@ -175,31 +172,32 @@ export function runLobbyScene(
 
       switch (mode) {
         case "hotkeys":
-          promptLabel.content = " ";
+          promptLabel.content = "";
           promptInput.placeholder = "";
           promptInput.value = "";
           promptInput.blur();
+          promptBox.borderColor = theme.c.muted;
           break;
         case "join_code":
-          promptLabel.content = " join room code:";
-          promptLabel.fg = theme.c.muted;
+          promptLabel.content = "join code › ";
+          promptLabel.fg = theme.c.warn;
           promptInput.placeholder = "4-char code, e.g. BX7Q";
           promptInput.value = "";
           promptInput.focus();
+          promptBox.borderColor = theme.c.warn;
           break;
         case "chat":
-          promptLabel.content = " ";
+          promptLabel.content = "";
           promptInput.placeholder = "";
           promptInput.value = "";
           promptInput.blur();
+          promptBox.borderColor = theme.c.self;
           if (chat) chat.focus();
           break;
       }
     };
 
-    // ── rendering helpers ───────────────────────────────────────────────
     const renderRoomsList = () => {
-      // Clear existing children.
       for (const child of roomsList.getChildren()) {
         roomsList.remove(child.id);
       }
@@ -223,57 +221,54 @@ export function runLobbyScene(
       }
     };
 
-    const renderYouAreIn = () => {
-      // Clear.
-      for (const child of youAreInList.getChildren()) {
-        youAreInList.remove(child.id);
+    const renderYourRoom = () => {
+      for (const child of yourRoomList.getChildren()) {
+        yourRoomList.remove(child.id);
       }
 
       if (!myRoomCode) {
-        youAreInHeader.content = " you're in: (no room)";
+        yourRoomBox.title = "your room — (none)";
+        yourRoomBox.borderColor = theme.c.muted;
         return;
       }
 
       const room = rooms.find((r) => r.code === myRoomCode);
       if (!room) {
-        // Room vanished from the listing (e.g., host left). Clear our state.
         myRoomCode = null;
-        youAreInHeader.content = " you're in: (room closed)";
-        youAreInHeader.fg = theme.c.warn;
+        yourRoomBox.title = "your room — (closed)";
+        yourRoomBox.borderColor = theme.c.warn;
         return;
       }
 
-      youAreInHeader.content = ` you're in: ${room.code}`;
-      youAreInHeader.fg = theme.c.ok;
+      yourRoomBox.title = `your room — ${room.code}`;
+      yourRoomBox.borderColor = theme.c.ok;
 
       for (const p of room.players) {
         const isHost = p.user_id === room.host_user_id;
         const isMine = isMe(p);
-        const label = `   · ${p.name}${isHost ? " (host)" : ""}${isMine ? " ← you" : ""}`;
+        const label = `· ${p.name}${isHost ? " (host)" : ""}${isMine ? " ← you" : ""}`;
         const tone: Tone = isMine ? "self" : "fg";
         const line = new TextRenderable(renderer, {
           content: label,
           fg: theme.c[tone],
         });
-        youAreInList.add(line);
+        yourRoomList.add(line);
       }
     };
 
-    // We don't know our numeric user_id client-side — identity only has
-    // {name, key}. Names are unique-forever, so matching on name is
-    // safe.
     const isMe = (player: { name: string }) => player.name === identity.name;
 
     const renderEverything = () => {
       renderRoomsList();
-      renderYouAreIn();
+      renderYourRoom();
     };
 
-    // ── theme reactivity ────────────────────────────────────────────────
     const stopThemeWatch = onThemeChange(() => {
       setTopBar(topBarStatus(), topBarTone);
-      roomsHeader.fg = theme.c.muted;
-      chatHeader.fg = theme.c.muted;
+      topBar.borderColor = theme.c.muted;
+      roomsBox.borderColor = theme.c.muted;
+      rightCol.borderColor = theme.c.muted;
+      promptBox.borderColor = theme.c.muted;
       footer.fg = theme.c.muted;
       renderEverything();
     });
@@ -291,46 +286,62 @@ export function runLobbyScene(
       }
     });
 
-    // ── keyboard routing ────────────────────────────────────────────────
-    // Hotkeys only fire when in "hotkeys" mode. In other modes, the
-    // focused input takes the keystrokes; we still listen for `escape`
-    // to bail back to hotkey mode.
-    const onKeypress = (key: { name: string; ctrl: boolean }) => {
+    const onKeypress = (key: {
+      name: string;
+      ctrl: boolean;
+      meta: boolean;
+      preventDefault(): void;
+      stopPropagation(): void;
+    }) => {
+      if (key.ctrl || key.meta) return;
+
+      const consume = () => {
+        key.preventDefault();
+        key.stopPropagation();
+      };
+
       if (mode !== "hotkeys") {
-        if (key.name === "escape") setMode("hotkeys");
+        if (key.name === "escape") {
+          setMode("hotkeys");
+          consume();
+        }
         return;
       }
+      // Hotkey letters are always consumed in hotkeys mode, even when
+      // the action they'd trigger is gated out (e.g. `j` while already
+      // in a room). Otherwise the keystroke leaks into whatever input
+      // has focus (typically chat) and types a literal letter.
       switch (key.name) {
         case "c":
-          createRoom();
+          if (!myRoomCode) createRoom();
+          consume();
           break;
         case "j":
           if (!myRoomCode) setMode("join_code");
+          consume();
           break;
         case "s":
           if (myRoomCode) startGame();
+          consume();
           break;
         case "l":
           if (myRoomCode) leaveRoom();
+          consume();
           break;
         case "t":
           setMode("chat");
+          consume();
           break;
       }
     };
     renderer.keyInput.on("keypress", onKeypress);
 
-    // Pin focus appropriately. In hotkeys mode nothing is focused; in
-    // chat mode the chat input owns it; in join_code mode the prompt
-    // input owns it. We let OpenTUI's clicks bounce against this so
-    // accidental clicks don't strand the user with no focused input.
     const onFocusChange = (focused: Renderable | null) => {
       switch (mode) {
         case "join_code":
           if (focused !== promptInput) promptInput.focus();
           break;
         case "chat":
-          // chat pane owns its own input; leave focus alone.
           break;
         case "hotkeys":
           if (focused) (focused as unknown as { blur?: () => void }).blur?.();
@@ -339,7 +350,6 @@ export function runLobbyScene(
     };
     renderer.on(CliRenderEvents.FOCUSED_RENDERABLE, onFocusChange);
 
-    // Join-code input: submit on Enter, send join_room.
     promptInput.on(InputRenderableEvents.ENTER, (raw: string) => {
       if (mode !== "join_code") return;
       const code = raw.trim().toUpperCase();
@@ -347,7 +357,6 @@ export function runLobbyScene(
       void joinRoom(code);
     });
 
-    // ── lobby actions ───────────────────────────────────────────────────
     const createRoom = () => {
       if (!lobbyChannel) return;
       lobbyChannel
@@ -378,7 +387,6 @@ export function runLobbyScene(
             `* could not join: ${resp?.reason ?? "unknown"}`,
             "error",
           );
-          // Stay in join_code mode so the user can retry.
           promptInput.value = "";
         });
     };
@@ -406,8 +414,6 @@ export function runLobbyScene(
       lobbyChannel
         .push("start_game", { code })
         .receive("ok", (resp: { message?: string }) => {
-          // Step 2: server returns a stub message. Step 3 will broadcast
-          // a `game_started` event we'll catch and transition on.
           myRoomCode = null;
           chat?.appendSystem(
             `* game ${code} started (${resp?.message ?? "ok"})`,
@@ -422,7 +428,6 @@ export function runLobbyScene(
         });
     };
 
-    // ── boot ────────────────────────────────────────────────────────────
     ready
       .then(() => {
         const channel = socket.channel("lobby:main", {});
@@ -431,18 +436,11 @@ export function runLobbyScene(
         channel.on("rooms", (payload: RoomsPayload) => {
           rooms = payload.rooms;
 
-          // If our room disappeared from the listing (e.g. host left or
-          // someone else's start succeeded), reflect that.
           if (myRoomCode && !rooms.some((r) => r.code === myRoomCode)) {
-            chat?.appendSystem(
-              `* room ${myRoomCode} closed`,
-              "warn",
-            );
+            chat?.appendSystem(`* room ${myRoomCode} closed`, "warn");
             myRoomCode = null;
           }
 
-          // If the lobby tells us about a room we believe we're in but
-          // we're no longer listed in its players, drop our state.
           if (myRoomCode) {
             const room = rooms.find((r) => r.code === myRoomCode);
             if (room && !room.players.some(isMe)) {
@@ -460,29 +458,25 @@ export function runLobbyScene(
               channel,
               selfName: identity.name,
             });
-            chat.appendSystem(
-              `* entered the lobby as ${identity.name}`,
-              "ok",
-            );
+            chat.appendSystem(`* entered the lobby as ${identity.name}`, "ok");
             setMode("hotkeys");
             renderEverything();
           })
           .receive("error", (resp: { reason?: string }) => {
-            setTopBar(`lobby join failed: ${resp?.reason ?? "unknown"}`, "error");
+            setTopBar(
+              `lobby join failed: ${resp?.reason ?? "unknown"}`,
+              "error",
+            );
           });
       })
       .catch((err: Error) => {
         if (err.message === "auth_rejected") {
-          setTopBar(
-            "auth rejected — clear local data and re-enter",
-            "error",
-          );
+          setTopBar("auth rejected — clear local data and re-enter", "error");
         } else {
           setTopBar(`connection failed: ${err.message}`, "error");
         }
       });
 
-    // ── teardown ────────────────────────────────────────────────────────
     // Step 2 doesn't actually transition out of the lobby on game start
     // (the server stub doesn't kick us). For now the lobby scene never
     // resolves; the user quits via Ctrl-C.
@@ -505,6 +499,6 @@ function footerHints(mode: Mode): string {
     case "join_code":
       return " enter the 4-char room code, esc to cancel";
     case "chat":
-      return " typing — esc to return to hotkeys";
+      return " typing - esc to return to hotkeys";
   }
 }

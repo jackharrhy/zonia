@@ -154,6 +154,17 @@ defmodule ZoniaWeb.LobbyChannel do
     {:reply, {:error, %{reason: "bad_payload"}}, socket}
   end
 
+  @impl true
+  def terminate(_reason, %{assigns: %{user_id: user_id}} = _socket) do
+    # If the client disconnected without leaving their room (closed
+    # terminal, crashed, network drop), tear down any rooms they were in
+    # so the listing stays accurate.
+    LobbyServer.leave_all(user_id)
+    :ok
+  end
+
+  def terminate(_reason, _socket), do: :ok
+
   ## ── Helpers ────────────────────────────────────────────────────────────
 
   defp current_user(socket) do
