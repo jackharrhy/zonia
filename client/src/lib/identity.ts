@@ -9,11 +9,24 @@ export interface Identity {
   createdAt: string;
 }
 
+export interface GameHistoryEntry {
+  roomCode: string;
+  finishedAt: string; // ISO 8601
+  placement: number;
+  stars: number;
+  coins: number;
+  board: string;
+}
+
 export interface IdentityStore {
   load(): Identity | null;
   save(identity: { name: string; key: string }): void;
   clear(): void;
   close(): void;
+  /** Append a finished game to local history. Best-effort; logs errors. */
+  recordGameHistory(entry: GameHistoryEntry): void;
+  /** Return the most recent N entries, newest first. Default 10. */
+  listGameHistory(limit?: number): GameHistoryEntry[];
 }
 
 const APP_DIR_NAME = "zonia";
@@ -42,6 +55,22 @@ const migrations: Array<(db: Database) => void> = [
         created_at TEXT NOT NULL
       )
     `);
+  },
+  (db) => {
+    db.run(`
+      CREATE TABLE game_history (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        room_code   TEXT NOT NULL,
+        finished_at TEXT NOT NULL,
+        placement   INTEGER NOT NULL,
+        stars       INTEGER NOT NULL,
+        coins       INTEGER NOT NULL,
+        board       TEXT NOT NULL
+      )
+    `);
+    db.run(
+      `CREATE INDEX idx_game_history_finished_at ON game_history (finished_at)`,
+    );
   },
 ];
 
@@ -86,6 +115,49 @@ export function openIdentityStore(): IdentityStore {
     },
     close() {
       db.close();
+    },
+    recordGameHistory(entry) {
+      try {
+        db.run(
+          `INSERT INTO game_history (room_code, finished_at, placement, stars, coins, board)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+          [
+            entry.roomCode,
+            entry.finishedAt,
+            entry.placement,
+            entry.stars,
+            entry.coins,
+            entry.board,
+          ],
+        );
+      } catch (err) {
+        console.error("recordGameHistory failed:", err);
+      }
+    },
+    listGameHistory(limit = 10) {
+      const rows = db
+        .query(
+          `SELECT room_code, finished_at, placement, stars, coins, board
+           FROM game_history
+           ORDER BY finished_at DESC, id DESC
+           LIMIT ?`,
+        )
+        .all(limit) as Array<{
+        room_code: string;
+        finished_at: string;
+        placement: number;
+        stars: number;
+        coins: number;
+        board: string;
+      }>;
+      return rows.map((r) => ({
+        roomCode: r.room_code,
+        finishedAt: r.finished_at,
+        placement: r.placement,
+        stars: r.stars,
+        coins: r.coins,
+        board: r.board,
+      }));
     },
   };
 }

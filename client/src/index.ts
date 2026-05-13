@@ -2,7 +2,7 @@ import { createCliRenderer } from "@opentui/core";
 import { openIdentityStore } from "./lib/identity.js";
 import { initTheme } from "./lib/theme.js";
 import { runRegisterScene } from "./scenes/register.js";
-import { runChatScene } from "./scenes/chat.js";
+import { runLobbyScene } from "./scenes/lobby.js";
 import { registerName } from "./lib/socket.js";
 
 // Parse a single --name flag from argv. Used by `just client <name>` to
@@ -28,8 +28,8 @@ const renderer = await createCliRenderer({
   exitOnCtrlC: true,
   consoleMode: "console-overlay",
   openConsoleOnError: true,
-  // Clicks should not steal focus from the active input. The chat and
-  // register scenes both want their text field permanently focused.
+  // Clicks should not steal focus from the active input. The register
+  // and lobby scenes manage focus themselves based on the current mode.
   autoFocus: false,
 });
 
@@ -68,4 +68,4 @@ if (!identity) {
   }
 }
 
-runChatScene(renderer, identity);
+await runLobbyScene(renderer, identity);

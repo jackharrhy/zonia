@@ -13,6 +13,7 @@ defmodule Zonia.Application do
       {DNSCluster, query: Application.get_env(:zonia, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: Zonia.PubSub},
       ZoniaWeb.Presence,
+      Zonia.LobbyServer,
       ZoniaWeb.Endpoint
     ]
 

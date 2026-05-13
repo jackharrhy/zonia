@@ -6,7 +6,9 @@ import { Socket, type Channel } from "phoenix";
 declare const __ZONIA_BAKED_SERVER__: string;
 
 const baked =
-  typeof __ZONIA_BAKED_SERVER__ === "string" ? __ZONIA_BAKED_SERVER__ : "";
+  typeof __ZONIA_BAKED_SERVER__ === "string" && __ZONIA_BAKED_SERVER__ !== ""
+    ? __ZONIA_BAKED_SERVER__
+    : undefined;
 
 export const DEFAULT_ENDPOINT =
   process.env.ZONIA_SERVER ?? baked ?? "ws://localhost:4000/socket";

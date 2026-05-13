@@ -5,7 +5,8 @@ defmodule ZoniaWeb.UserSocket do
   Two flavors of connection:
 
     * Authenticated: `params["key"]` is present and valid. The user's id is
-      stashed in socket assigns and `world:*` channels are joinable.
+      stashed in socket assigns and `lobby:*` / `game:*` channels are
+      joinable.
 
     * Unregistered: no key (or invalid key). Only the `register:lobby`
       channel is joinable, which exposes a single `register` event that mints
@@ -17,7 +18,7 @@ defmodule ZoniaWeb.UserSocket do
   alias Zonia.Accounts
 
   channel("register:lobby", ZoniaWeb.RegisterChannel)
-  channel("world:*", ZoniaWeb.WorldChannel)
+  channel("lobby:main", ZoniaWeb.LobbyChannel)
 
   @impl true
   def connect(%{"key" => key}, socket, _connect_info) when is_binary(key) and key != "" do
