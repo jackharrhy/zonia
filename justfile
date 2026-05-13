@@ -38,6 +38,15 @@ precommit:
 typecheck:
     cd client && bunx tsc --noEmit
 
+# Preview a board in the TUI without running the full server / game stack.
+# Dumps the parsed board to tmp/boards/<name>.json then launches the client's
+# preview scene against it. Useful for iterating on map.txt + style.ex.
+#
+#   just preview-board zonia-isle
+preview-board name:
+    cd server && mix zonia.dump_board {{name}}
+    cd client && bun run --watch src/preview.ts -- --fixture ../tmp/boards/{{name}}.json
+
 # Build per-platform binaries and stage all npm packages into dist/npm/.
 build-npm:
     bun scripts/prepare-npm.ts

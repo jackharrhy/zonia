@@ -20,4 +20,9 @@ config :logger, :default_formatter,
 
 config :phoenix, :json_library, Jason
 
+# Board names this build ships. Each must have a directory under
+# priv/boards/<name>/ with map.txt and a Zonia.Boards.<CamelCase>.Style
+# module.
+config :zonia, boards: ["zonia-isle"]
+
 import_config "#{config_env()}.exs"
