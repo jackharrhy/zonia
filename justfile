@@ -8,20 +8,24 @@ default:
 server:
     cd server && mix ecto.migrate && mix phx.server
 
-# Launch the OpenTUI client. Optionally pass a name to spin up an isolated
-# instance with its own data dir under tmp/clients/<name> (gitignored), so
-# you can run several clients side-by-side for testing.
+# Launch the OpenTUI client in dev mode.
 #
-#   just client          → uses the real XDG data dir
-#   just client alice    → uses tmp/clients/alice
-client name="":
+# Always uses a repo-local data dir under tmp/clients/<name>/ so dev
+# identities never collide with the production identity in your real
+# XDG dir (~/.local/share/zonia/). The dev server has its own users
+# table, so a prod-minted key would just fail to authenticate.
+#
+#   just client          → tmp/clients/dev/        (no auto-register)
+#   just client alice    → tmp/clients/alice/      (auto-registers as alice)
+client name="dev":
     #!/usr/bin/env bash
     set -euo pipefail
-    if [ -z "{{name}}" ]; then
-        cd client && bun run dev
+    dir="$(pwd)/tmp/clients/{{name}}"
+    mkdir -p "$dir"
+    if [ "{{name}}" = "dev" ]; then
+        echo "→ dev client using data dir $dir (no --name)"
+        cd client && ZONIA_DATA_DIR="$dir" bun run dev
     else
-        dir="$(pwd)/tmp/clients/{{name}}"
-        mkdir -p "$dir"
         echo "→ client '{{name}}' using data dir $dir"
         cd client && ZONIA_DATA_DIR="$dir" bun run dev -- --name {{name}}
     fi
