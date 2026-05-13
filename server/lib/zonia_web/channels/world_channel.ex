@@ -3,10 +3,10 @@ defmodule ZoniaWeb.WorldChannel do
   The world. For v1: one big shared room (`world:lobby`).
 
   Events from client:
-    * `say` — broadcast a chat line to everyone in the topic.
+    * `say`: broadcast a chat line to everyone in the topic.
 
   Events to client:
-    * `say` — `%{name, body, at}` — someone spoke.
+    * `say`: `%{name, body, at}` — someone spoke.
     * `presence_state` / `presence_diff` — Phoenix.Presence roster.
   """
   use ZoniaWeb, :channel

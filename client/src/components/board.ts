@@ -16,28 +16,32 @@ import {
 } from "@opentui/core";
 import { onThemeChange, pathColor, theme, type Tone } from "../lib/theme.js";
 
-export interface BoardStyleEntry {
-  kind:
-    | "tile"
-    | "edge_north"
-    | "edge_south"
-    | "edge_east"
-    | "edge_west"
-    | "decor";
-  /** Server-side atom name, e.g. "cyan", "magenta", "green", "default". */
+export interface BoardNodeStyle {
+  kind: "start" | "node";
+  /** Server-side atom name, e.g. "cyan", "magenta", "yellow", "default". */
   color?: string;
-  /** Present for some tiles, e.g. "minigame", "mystery", "star_shop". */
+  /** Optional tile effect, e.g. "minigame", "mystery", "star_shop". */
   effect?: string;
-  start?: boolean;
+}
+
+export interface BoardEdgeStyle {
+  axis: "horizontal" | "vertical";
+  color?: string;
+}
+
+export interface BoardDecorStyle {
+  color?: string;
 }
 
 export interface BoardData {
   name: string;
   raw: string;
-  style: Record<string, BoardStyleEntry>;
   width: number;
   height: number;
   start: [number, number];
+  node_style: Record<string, BoardNodeStyle>;
+  edge_style: Record<string, BoardEdgeStyle>;
+  decor_style: Record<string, BoardDecorStyle>;
 }
 
 export interface BoardPlayer {
@@ -72,9 +76,23 @@ function pawnChar(slot: number): string {
 const segmenter = new Intl.Segmenter("en", { granularity: "grapheme" });
 
 /**
- * Build the styled board text from `{raw, style}`. Every grapheme becomes
- * its own colored chunk; newlines become bare "\n" chunks to preserve
- * line breaks across the styled text.
+ * Resolve the color for a grapheme by looking through node, edge, and
+ * decor styles in order. Anything not registered renders with the
+ * default decor color — so background fill, frame chars, etc. just work
+ * without any style.ex bookkeeping.
+ */
+function lookupColor(board: BoardData, g: string): string | undefined {
+  return (
+    board.node_style[g]?.color ??
+    board.edge_style[g]?.color ??
+    board.decor_style[g]?.color
+  );
+}
+
+/**
+ * Build the styled board text from `{raw, ...style maps}`. Every grapheme
+ * becomes its own colored chunk; newlines become bare "\n" chunks to
+ * preserve line breaks across the styled text.
  */
 function buildBoardStyledText(board: BoardData): StyledText {
   const chunks: TextChunk[] = [];
@@ -83,8 +101,7 @@ function buildBoardStyledText(board: BoardData): StyledText {
     const line = lines[i] ?? "";
     for (const seg of segmenter.segment(line)) {
       const g = seg.segment;
-      const entry = board.style[g];
-      const color = pathColor(entry?.color);
+      const color = pathColor(lookupColor(board, g));
       // `fg(color)(text)` returns a TextChunk; StyledText takes that array.
       chunks.push(fg(color)(g) as TextChunk);
     }

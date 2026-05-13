@@ -2,30 +2,40 @@ defmodule Zonia.Boards.ZoniaIsle.Style do
   @moduledoc """
   Side-channel style for the zonia-isle board.
 
-  Every grapheme in `priv/boards/zonia-isle/map.txt` must appear here.
+  Frame characters (`╒══╕╘╛│═`) and background fill (`▒`) are pure decor:
+  the parser ignores them, the client renders them with hints from
+  `decor/0`. Only the named nodes and edge segments form the graph.
   """
   @behaviour Zonia.Boards.Style
 
   @impl true
-  def style do
+  def nodes do
     %{
-      # Path tiles
-      "●" => %{kind: :tile, color: :cyan},
-      "M" => %{kind: :tile, color: :magenta, effect: :minigame},
-      "?" => %{kind: :tile, color: :yellow, effect: :mystery},
-      "★" => %{kind: :tile, color: :yellow, effect: :star_shop, start: true},
+      "S" => %{kind: :start, color: :yellow},
+      "X" => %{kind: :node, color: :cyan},
+      "M" => %{kind: :node, color: :magenta, effect: :minigame},
+      "?" => %{kind: :node, color: :yellow, effect: :mystery}
+    }
+  end
 
-      # Directional one-way edges
-      "→" => %{kind: :edge_east, color: :cyan},
-      "←" => %{kind: :edge_west, color: :cyan},
-      "↑" => %{kind: :edge_north, color: :cyan},
-      "↓" => %{kind: :edge_south, color: :cyan},
+  @impl true
+  def edges do
+    %{
+      "-" => %{axis: :horizontal, color: :cyan},
+      "|" => %{axis: :vertical, color: :cyan}
+    }
+  end
 
-      # Decor — parser ignores; client renders.
-      "🌲" => %{kind: :decor, color: :green},
-      "🌊" => %{kind: :decor, color: :blue},
-      "△" => %{kind: :decor, color: :gray},
-      " " => %{kind: :decor, color: :default}
+  @impl true
+  def decor do
+    %{
+      "▒" => %{color: :gray},
+      "│" => %{color: :gray},
+      "═" => %{color: :gray},
+      "╒" => %{color: :gray},
+      "╕" => %{color: :gray},
+      "╘" => %{color: :gray},
+      "╛" => %{color: :gray}
     }
   end
 end

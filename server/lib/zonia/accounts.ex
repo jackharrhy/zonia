@@ -24,12 +24,7 @@ defmodule Zonia.Accounts do
   @type registration :: %{user: User.t(), key: String.t()}
 
   @doc """
-  Register a new user. Returns `{:ok, %{user, key}}` or `{:error, reason}`.
-
-  Reasons:
-    * `:name_invalid` — fails regex (length / charset)
-    * `:name_reserved`
-    * `:name_taken`
+  Register a new user.
   """
   @spec register(String.t()) :: {:ok, registration()} | {:error, atom()}
   def register(name) when is_binary(name) do
@@ -45,13 +40,13 @@ defmodule Zonia.Accounts do
   def register(_), do: {:error, :name_invalid}
 
   @doc """
-  Look up a user by their bearer key. Returns `{:ok, user}` or `:error`.
+  Look up a user by their bearer key.
   """
   @spec authenticate(String.t()) :: {:ok, User.t()} | :error
   def authenticate(key) when is_binary(key) and byte_size(key) > 0 do
     hash = hash_key(key)
 
-    case Repo.one(from u in User, where: u.key_hash == ^hash) do
+    case Repo.one(from(u in User, where: u.key_hash == ^hash)) do
       nil -> :error
       user -> {:ok, user}
     end
@@ -61,8 +56,6 @@ defmodule Zonia.Accounts do
 
   @doc "Returns the validation regex for clients/tests that want to mirror it."
   def name_regex, do: @name_regex
-
-  ## Private
 
   defp validate_name(name) do
     if Regex.match?(@name_regex, name), do: :ok, else: {:error, :name_invalid}

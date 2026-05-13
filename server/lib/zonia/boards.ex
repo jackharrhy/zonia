@@ -1,22 +1,6 @@
 defmodule Zonia.Boards do
   @moduledoc """
   Loads and caches `Zonia.Board` structs from `priv/boards/<name>/`.
-
-  A board directory contains:
-
-    * `map.txt` — the raw unicode art.
-    * `style.ex` — a module implementing `Zonia.Boards.Style`, named by
-      convention `Zonia.Boards.<CamelCasedName>.Style`.
-
-  The list of available boards is hardcoded in config under
-  `:zonia, :boards`. For v1 that's just `["zonia-isle"]`. To add a board:
-  create the directory, add the name to config, write `map.txt` and
-  `style.ex`.
-
-  Boards are parsed eagerly via `load_all/0` on demand. The result is a
-  flat map keyed by name. Parsing happens fresh each call — the
-  application supervisor caches the result in its own state if it wants
-  to (see `Zonia.Application`).
   """
 
   alias Zonia.Board
@@ -45,9 +29,9 @@ defmodule Zonia.Boards do
     end
 
     raw = File.read!(map_path)
-    style = style_module!(name).style()
+    style_module = style_module!(name)
 
-    Board.parse(name, raw, style)
+    Board.parse(name, raw, style_module)
   end
 
   defp style_module!(name) do
@@ -55,11 +39,17 @@ defmodule Zonia.Boards do
 
     case Code.ensure_loaded(mod) do
       {:module, ^mod} ->
-        if function_exported?(mod, :style, 0) do
-          mod
-        else
-          raise Board.ParseError,
-                "board #{inspect(name)}: #{inspect(mod)} doesn't export style/0"
+        cond do
+          not function_exported?(mod, :nodes, 0) ->
+            raise Board.ParseError,
+                  "board #{inspect(name)}: #{inspect(mod)} doesn't export nodes/0"
+
+          not function_exported?(mod, :edges, 0) ->
+            raise Board.ParseError,
+                  "board #{inspect(name)}: #{inspect(mod)} doesn't export edges/0"
+
+          true ->
+            mod
         end
 
       {:error, reason} ->
