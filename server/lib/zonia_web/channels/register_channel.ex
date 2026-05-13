@@ -1,7 +1,7 @@
 defmodule ZoniaWeb.RegisterChannel do
   @moduledoc """
   A throwaway channel that exists solely to expose `register` to unauthenticated
-  sockets. Not a "place" in the world — it is the registration handshake.
+  sockets.
 
   After a successful `register`, the client disconnects and reconnects with the
   new key. We do not promote the existing socket to authenticated.

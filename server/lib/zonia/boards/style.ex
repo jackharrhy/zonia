@@ -2,22 +2,35 @@ defmodule Zonia.Boards.Style do
   @moduledoc """
   Behaviour for a board's side-channel style metadata.
 
-  Every character in a board's `map.txt` must appear in the corresponding
-  style module's `style/0`. Unknown characters fail the parser loudly.
+  Boards have three character classes:
 
-  A style entry is a map with these keys:
+    * **Nodes** — graph vertices. Players stop at them; branches happen
+      here. Examples: `"S"` (start), `"X"` (plain corner), `"M"` (mini-
+      game tile), `"?"` (mystery tile).
+    * **Edges** — graph segments connecting two nodes. Players walk
+      through them one cell at a time. Examples: `"-"` (horizontal),
+      `"|"` (vertical).
+    * **Decor** — everything else: frame chars, background fill, scenery.
+      Ignored by the parser; rendered as-is by the client with optional
+      per-char color hints.
 
-    * `:kind` — required. One of `:tile`, `:edge_north`, `:edge_south`,
-      `:edge_east`, `:edge_west`, or `:decor`. The parser uses this to
-      build the graph; everything else is for rendering.
-    * `:color` — optional atom. Forwarded to the client and mapped to a
-      theme tone there. Atoms like `:cyan`, `:magenta`, `:green` are
-      conventional but free-form.
-    * `:effect` — optional atom on `:tile` entries. One of `:minigame`,
-      `:mystery`, `:star_shop`, or any future effect. `nil` means a
-      plain tile.
-    * `:start` — optional boolean on `:tile` entries. Exactly one tile
-      across the whole style must be `start: true`.
+  ### Required callbacks
+
+    * `nodes/0` — a map from char to `%{kind: :start | :node | atom(),
+      color: atom(), effect: atom() | nil}`. Exactly one node entry
+      must have `kind: :start`.
+    * `edges/0` — a map from char to `%{axis: :horizontal | :vertical,
+      color: atom()}`.
+
+  ### Optional callbacks
+
+    * `decor/0` — a map from char to `%{color: atom()}`. Anything not
+      in this map renders with a default muted color. Useful for
+      coloring background fill or frame chars.
+
+  Unknown characters in the map are **silently treated as decor**. The
+  parser doesn't fail on them — they just don't participate in the
+  graph.
 
   Example:
 
@@ -25,29 +38,56 @@ defmodule Zonia.Boards.Style do
         @behaviour Zonia.Boards.Style
 
         @impl true
-        def style do
+        def nodes do
           %{
-            "●" => %{kind: :tile, color: :cyan},
-            "★" => %{kind: :tile, color: :yellow, effect: :star_shop, start: true},
-            "→" => %{kind: :edge_east, color: :cyan},
-            "🌲" => %{kind: :decor, color: :green},
-            " " => %{kind: :decor, color: :default}
+            "S" => %{kind: :start, color: :yellow},
+            "X" => %{kind: :node,  color: :cyan},
+            "M" => %{kind: :node,  color: :magenta, effect: :minigame},
+            "?" => %{kind: :node,  color: :yellow,  effect: :mystery}
+          }
+        end
+
+        @impl true
+        def edges do
+          %{
+            "-" => %{axis: :horizontal, color: :cyan},
+            "|" => %{axis: :vertical,   color: :cyan}
+          }
+        end
+
+        @impl true
+        def decor do
+          %{
+            "▒" => %{color: :gray},
+            "│" => %{color: :gray},
+            "═" => %{color: :gray}
           }
         end
       end
   """
 
-  @type kind ::
-          :tile | :edge_north | :edge_south | :edge_east | :edge_west | :decor
+  @type node_kind :: :start | :node
 
-  @type entry :: %{
-          required(:kind) => kind(),
+  @type node_entry :: %{
+          required(:kind) => node_kind(),
           optional(:color) => atom(),
-          optional(:effect) => atom() | nil,
-          optional(:start) => boolean()
+          optional(:effect) => atom() | nil
         }
 
-  @type t :: %{String.t() => entry()}
+  @type edge_axis :: :horizontal | :vertical
 
-  @callback style() :: t()
+  @type edge_entry :: %{
+          required(:axis) => edge_axis(),
+          optional(:color) => atom()
+        }
+
+  @type decor_entry :: %{
+          optional(:color) => atom()
+        }
+
+  @callback nodes() :: %{String.t() => node_entry()}
+  @callback edges() :: %{String.t() => edge_entry()}
+  @callback decor() :: %{String.t() => decor_entry()}
+
+  @optional_callbacks decor: 0
 end

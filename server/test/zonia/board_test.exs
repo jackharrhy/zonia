@@ -4,421 +4,271 @@ defmodule Zonia.BoardTest do
   alias Zonia.Board
   alias Zonia.Board.ParseError
 
-  # Small inline style helpers so each test is self-contained and doesn't
-  # break if the shipped board's style is later edited.
+  # Each test defines its own inline style module so cases don't share
+  # state and the shipped boards' style can change without breaking tests.
 
-  defp base_style do
-    %{
-      "●" => %{kind: :tile, color: :cyan},
-      "★" => %{kind: :tile, color: :yellow, start: true},
-      "→" => %{kind: :edge_east, color: :cyan},
-      "←" => %{kind: :edge_west, color: :cyan},
-      "↑" => %{kind: :edge_north, color: :cyan},
-      "↓" => %{kind: :edge_south, color: :cyan},
-      " " => %{kind: :decor, color: :default}
-    }
+  defmodule StyleS_X_Dash_Pipe do
+    @behaviour Zonia.Boards.Style
+    @impl true
+    def nodes do
+      %{
+        "S" => %{kind: :start, color: :yellow},
+        "X" => %{kind: :node, color: :cyan}
+      }
+    end
+
+    @impl true
+    def edges do
+      %{
+        "-" => %{axis: :horizontal, color: :cyan},
+        "|" => %{axis: :vertical, color: :cyan}
+      }
+    end
+
+    @impl true
+    def decor, do: %{}
   end
 
-  defp style_with(extra), do: Map.merge(base_style(), extra)
+  defmodule StyleWithEffects do
+    @behaviour Zonia.Boards.Style
+    @impl true
+    def nodes do
+      %{
+        "S" => %{kind: :start, color: :yellow},
+        "X" => %{kind: :node, color: :cyan},
+        "M" => %{kind: :node, color: :magenta, effect: :minigame},
+        "?" => %{kind: :node, color: :yellow, effect: :mystery}
+      }
+    end
+
+    @impl true
+    def edges do
+      %{
+        "-" => %{axis: :horizontal, color: :cyan},
+        "|" => %{axis: :vertical, color: :cyan}
+      }
+    end
+
+    @impl true
+    def decor, do: %{}
+  end
+
+  defmodule StyleNoStart do
+    @behaviour Zonia.Boards.Style
+    @impl true
+    def nodes, do: %{"X" => %{kind: :node, color: :cyan}}
+    @impl true
+    def edges, do: %{"-" => %{axis: :horizontal, color: :cyan}}
+    @impl true
+    def decor, do: %{}
+  end
+
+  defmodule StyleTwoStarts do
+    @behaviour Zonia.Boards.Style
+    @impl true
+    def nodes do
+      %{
+        "S" => %{kind: :start, color: :yellow},
+        "T" => %{kind: :start, color: :yellow}
+      }
+    end
+
+    @impl true
+    def edges, do: %{"-" => %{axis: :horizontal, color: :cyan}}
+    @impl true
+    def decor, do: %{}
+  end
+
+  defp edges_from(board, pos) do
+    board.nodes[pos].edges
+  end
+
+  defp dirs(board, pos) do
+    edges_from(board, pos) |> Enum.map(& &1.direction) |> Enum.sort()
+  end
 
   describe "parse/3 — happy paths" do
-    test "single line of tiles: endpoints have one outgoing edge, interior tiles have two" do
-      raw = "★●●●"
-      board = Board.parse("line", raw, base_style())
-
-      assert board.name == "line"
-      assert board.raw == raw
-      assert board.width == 4
-      assert board.height == 1
+    test "two adjacent nodes form a degree-1 edge with empty-cell path" do
+      board = Board.parse("adj", "SX", StyleS_X_Dash_Pipe)
+      assert board.name == "adj"
       assert board.start == {0, 0}
-      assert map_size(board.tiles) == 4
+      assert map_size(board.nodes) == 2
 
-      # Left endpoint: only east.
-      assert dirs(board, {0, 0}) == [:east]
-      assert targets(board, {0, 0}) == [{0, 1}]
-
-      # Interior tiles: east + west.
-      assert Enum.sort(dirs(board, {0, 1})) == [:east, :west]
-      assert Enum.sort(targets(board, {0, 1})) == [{0, 0}, {0, 2}]
-      assert Enum.sort(dirs(board, {0, 2})) == [:east, :west]
-
-      # Right endpoint: only west.
-      assert dirs(board, {0, 3}) == [:west]
-      assert targets(board, {0, 3}) == [{0, 2}]
+      [edge] = edges_from(board, {0, 0})
+      assert edge.to == {0, 1}
+      assert edge.direction == :east
+      # Direct adjacency: path is just the destination cell.
+      assert edge.path == [{0, 1}]
     end
 
-    test "rectangular loop: every tile has degree 2" do
-      raw =
-        """
-        ★●●
-        ● ●
-        ●●●
-        """
-        |> String.trim_trailing("\n")
+    test "nodes separated by horizontal edge characters" do
+      board = Board.parse("h", "S---X", StyleS_X_Dash_Pipe)
+      assert map_size(board.nodes) == 2
 
-      board = Board.parse("loop", raw, base_style())
+      [edge_east] = edges_from(board, {0, 0})
+      assert edge_east.direction == :east
+      assert edge_east.to == {0, 4}
+      # Path traverses each `-` cell then arrives at the destination.
+      assert edge_east.path == [{0, 1}, {0, 2}, {0, 3}, {0, 4}]
 
-      assert board.width == 3
-      assert board.height == 3
-      # 8 tiles around the perimeter; the centre is a decor space.
-      assert map_size(board.tiles) == 8
+      [edge_west] = edges_from(board, {0, 4})
+      assert edge_west.direction == :west
+      assert edge_west.to == {0, 0}
+      assert edge_west.path == [{0, 3}, {0, 2}, {0, 1}, {0, 0}]
+    end
 
-      # Every tile on the loop has exactly two outgoing edges.
-      for {_pos, tile} <- board.tiles do
-        assert length(tile.outgoing) == 2
+    test "nodes separated by vertical edge characters" do
+      raw = """
+      S
+      |
+      |
+      X
+      """
+
+      board = Board.parse("v", raw, StyleS_X_Dash_Pipe)
+
+      [edge] = edges_from(board, {0, 0})
+      assert edge.direction == :south
+      assert edge.to == {3, 0}
+      assert edge.path == [{1, 0}, {2, 0}, {3, 0}]
+    end
+
+    test "T-junction node has 3 outgoing edges" do
+      # S---X---X
+      #     |
+      #     X
+      raw = "S---X---X\n    |    \n    X    "
+
+      board = Board.parse("t", raw, StyleS_X_Dash_Pipe)
+
+      junction = {0, 4}
+      assert length(edges_from(board, junction)) == 3
+      assert Enum.sort(dirs(board, junction)) == [:east, :south, :west]
+    end
+
+    test "unknown characters are silently treated as decor" do
+      # 🌲S---X🌲   — the trees aren't in style.ex but parser doesn't
+      # care; they're decor.
+      board = Board.parse("decor", "🌲S---X🌲", StyleS_X_Dash_Pipe)
+      assert map_size(board.nodes) == 2
+      assert board.start == {0, 1}
+      [edge] = edges_from(board, {0, 1})
+      assert edge.to == {0, 5}
+    end
+
+    test "effects on nodes carry through" do
+      board = Board.parse("eff", "S-M-?-X", StyleWithEffects)
+
+      assert board.nodes[{0, 0}].effect == nil
+      assert board.nodes[{0, 2}].effect == :minigame
+      assert board.nodes[{0, 4}].effect == :mystery
+      assert board.nodes[{0, 6}].effect == nil
+    end
+
+    test "rectangular loop: every node has degree 2" do
+      # S----X
+      # |    |
+      # |    |
+      # X----X
+      raw = "S----X\n|    |\n|    |\nX----X"
+
+      board = Board.parse("loop", raw, StyleS_X_Dash_Pipe)
+
+      assert map_size(board.nodes) == 4
+
+      for pos <- [{0, 0}, {0, 5}, {3, 0}, {3, 5}] do
+        assert length(edges_from(board, pos)) == 2,
+               "expected node #{inspect(pos)} to have 2 edges, got #{length(edges_from(board, pos))}"
       end
-
-      assert board.start == {0, 0}
     end
 
-    test "T-junction tile has three outgoing edges" do
-      # ●●●
-      #  ★
-      #  ●
-      raw =
-        """
-        ●●●
-         ★
-         ●
-        """
-        |> String.trim_trailing("\n")
-
-      board = Board.parse("tee", raw, base_style())
-
-      # Junction at (0,1): west, east, south.
-      assert Enum.sort(dirs(board, {0, 1})) == [:east, :south, :west]
-      assert Enum.sort(targets(board, {0, 1})) == [{0, 0}, {0, 2}, {1, 1}]
-
-      # Each leaf endpoint has exactly one edge.
-      assert dirs(board, {0, 0}) == [:east]
-      assert dirs(board, {0, 2}) == [:west]
-      assert dirs(board, {2, 1}) == [:north]
-
-      assert board.start == {1, 1}
-    end
-
-    test "decor characters (space + custom) are ignored for tile counting" do
-      style =
-        style_with(%{
-          "🌲" => %{kind: :decor, color: :green},
-          "🌊" => %{kind: :decor, color: :blue}
-        })
-
-      raw =
-        """
-        🌲★●🌊
-        🌲 ●🌊
-        """
-        |> String.trim_trailing("\n")
-
-      board = Board.parse("decor", raw, style)
-
-      # Only 3 tile cells: ★ at (0,1), ● at (0,2), ● at (1,2). The 🌲 and
-      # 🌊 decor characters and the space are ignored.
-      assert map_size(board.tiles) == 3
-      assert Map.has_key?(board.tiles, {0, 1})
-      assert Map.has_key?(board.tiles, {0, 2})
-      assert Map.has_key?(board.tiles, {1, 2})
-      refute Map.has_key?(board.tiles, {0, 0})
-      refute Map.has_key?(board.tiles, {1, 1})
-    end
-
-    test "effects are carried through to tiles" do
-      style =
-        style_with(%{
-          "M" => %{kind: :tile, color: :magenta, effect: :minigame},
-          "?" => %{kind: :tile, color: :yellow, effect: :mystery}
-        })
-
-      raw = "★M?●"
-      board = Board.parse("fx", raw, style)
-
-      assert board.tiles[{0, 0}].effect == nil
-      assert board.tiles[{0, 0}].start == true
-      assert board.tiles[{0, 1}].effect == :minigame
-      assert board.tiles[{0, 1}].color == :magenta
-      assert board.tiles[{0, 2}].effect == :mystery
-      assert board.tiles[{0, 3}].effect == nil
-      assert board.tiles[{0, 3}].char == "●"
-    end
-
-    test "start position points at the unique start: true tile" do
-      raw = "●●★●●"
-      board = Board.parse("start", raw, base_style())
-
-      assert board.start == {0, 2}
-      assert board.tiles[{0, 2}].start == true
-
-      refute board.tiles[{0, 0}].start
-      refute board.tiles[{0, 1}].start
-      refute board.tiles[{0, 3}].start
-      refute board.tiles[{0, 4}].start
+    test "node kind is preserved (start vs. node)" do
+      board = Board.parse("kinds", "S-X", StyleS_X_Dash_Pipe)
+      assert board.nodes[{0, 0}].kind == :start
+      assert board.nodes[{0, 2}].kind == :node
     end
   end
 
-  describe "parse/3 — one-way edges" do
-    test "→ creates a one-way east edge; no west edge back" do
-      # ★→●● — the right ● has a west neighbour (middle ●) so it isn't
-      # orphaned. The arrow gives ★ a one-way east edge, but the middle
-      # ● does NOT get a west edge back through the arrow.
-      raw = "★→●●"
-      board = Board.parse("east", raw, base_style())
+  describe "edge orientation" do
+    # An edge char of the wrong axis can't connect two nodes. Both
+    # adjacent nodes will then have no outgoing edges, so the orphan
+    # check fires first. Either error (orphan or dangling) is acceptable
+    # for now — both indicate the same broken map.
 
-      assert map_size(board.tiles) == 3
+    test "horizontal edge char between vertically-aligned nodes fails to parse" do
+      raw = "S\n-\nX"
 
-      # ★ → ● across the arrow.
-      assert targets(board, {0, 0}) == [{0, 2}]
-      assert dirs(board, {0, 0}) == [:east]
-
-      # Middle ● only connects east (no west back through arrow).
-      assert dirs(board, {0, 2}) == [:east]
-      assert targets(board, {0, 2}) == [{0, 3}]
-
-      # Right ● only connects west.
-      assert dirs(board, {0, 3}) == [:west]
+      assert_raise ParseError, ~r/orphan|dangling/, fn ->
+        Board.parse("misaligned", raw, StyleS_X_Dash_Pipe)
+      end
     end
 
-    test "← creates a one-way west edge" do
-      raw = "●●←★"
-      board = Board.parse("west", raw, base_style())
+    test "vertical edge char between horizontally-aligned nodes fails to parse" do
+      raw = "S|X"
 
-      assert map_size(board.tiles) == 3
-
-      # ★ at (0,3) → west to (0,1) across the arrow.
-      assert dirs(board, {0, 3}) == [:west]
-      assert targets(board, {0, 3}) == [{0, 1}]
-
-      # (0,1) has no east edge back through the arrow; only its west tile-neighbour.
-      assert dirs(board, {0, 1}) == [:west]
-      assert targets(board, {0, 1}) == [{0, 0}]
-
-      assert dirs(board, {0, 0}) == [:east]
-    end
-
-    test "↑ creates a one-way north edge" do
-      raw =
-        """
-        ★●
-        ↑\s
-        ●●
-        """
-        |> String.trim_trailing("\n")
-
-      board = Board.parse("north", raw, base_style())
-
-      # (2,0) north via ↑ at (1,0) to (0,0)=★.
-      assert {{0, 0}, :north} in board.tiles[{2, 0}].outgoing
-      # ★ has only its east neighbour — no south edge back through the arrow.
-      assert dirs(board, {0, 0}) == [:east]
-    end
-
-    test "↓ creates a one-way south edge" do
-      raw =
-        """
-        ★●
-        ↓\s
-        ●●
-        """
-        |> String.trim_trailing("\n")
-
-      board = Board.parse("south", raw, base_style())
-
-      # ★ at (0,0) south to (2,0) via ↓.
-      assert {{2, 0}, :south} in board.tiles[{0, 0}].outgoing
-      assert Enum.sort(dirs(board, {0, 0})) == [:east, :south]
-
-      # (2,0) has no north edge back.
-      assert dirs(board, {2, 0}) == [:east]
-    end
-
-    test "a → arrow does not create a vertical edge between tiles above/below it" do
-      # ★●●
-      # ●→●
-      # ●●●
-      #
-      # The → at (1,1) sits between (1,0) and (1,2) — valid one-way east.
-      # The tiles above and below it must NOT gain a vertical edge that
-      # passes through the arrow, because edge_east ≠ edge_north/south.
-      raw =
-        """
-        ★●●
-        ●→●
-        ●●●
-        """
-        |> String.trim_trailing("\n")
-
-      board = Board.parse("misaligned", raw, base_style())
-
-      east_targets =
-        board.tiles[{1, 0}].outgoing
-        |> Enum.filter(fn {_p, dir} -> dir == :east end)
-        |> Enum.map(&elem(&1, 0))
-
-      assert east_targets == [{1, 2}]
-
-      south_from_top =
-        board.tiles[{0, 1}].outgoing
-        |> Enum.filter(fn {_p, dir} -> dir == :south end)
-
-      assert south_from_top == []
-
-      north_from_bottom =
-        board.tiles[{2, 1}].outgoing
-        |> Enum.filter(fn {_p, dir} -> dir == :north end)
-
-      assert north_from_bottom == []
-
-      west_back =
-        board.tiles[{1, 2}].outgoing
-        |> Enum.filter(fn {_p, dir} -> dir == :west end)
-
-      assert west_back == []
+      assert_raise ParseError, ~r/orphan|dangling/, fn ->
+        Board.parse("misaligned", raw, StyleS_X_Dash_Pipe)
+      end
     end
   end
 
   describe "parse/3 — errors" do
-    test "unknown character in map but not in style" do
-      raw = "★●X"
-
-      error =
-        assert_raise ParseError, fn ->
-          Board.parse("unknown", raw, base_style())
-        end
-
-      assert error.message =~ "unknown character"
-      assert error.message =~ "X"
-      assert error.message =~ "unknown"
+    test "no start node raises" do
+      assert_raise ParseError, ~r/no start node/, fn ->
+        Board.parse("nostart", "X-X", StyleNoStart)
+      end
     end
 
-    test "no start tile raises" do
-      style = Map.delete(base_style(), "★")
-      raw = "●●●"
-
-      error =
-        assert_raise ParseError, fn ->
-          Board.parse("nostart", raw, style)
-        end
-
-      assert error.message =~ "no start tile"
+    test "multiple start nodes raise" do
+      assert_raise ParseError, ~r/multiple start/, fn ->
+        Board.parse("twostarts", "S-T", StyleTwoStarts)
+      end
     end
 
-    test "multiple start tiles raise" do
-      raw = "★★"
-
-      error =
-        assert_raise ParseError, fn ->
-          Board.parse("doublestart", raw, base_style())
-        end
-
-      assert error.message =~ "multiple start tiles"
+    test "orphan node (no outgoing edges) raises" do
+      # A standalone `S` with no edges anywhere.
+      assert_raise ParseError, ~r/orphan/, fn ->
+        Board.parse("orphan", "S", StyleS_X_Dash_Pipe)
+      end
     end
 
-    test "orphan tile (no walkable neighbours) raises" do
-      # ★ and ● both isolated by decor — parser raises on the first
-      # orphan it encounters.
-      raw =
-        """
-        ★
-         \s
-         ●
-        """
-        |> String.trim_trailing("\n")
-
-      error =
-        assert_raise ParseError, fn ->
-          Board.parse("orphan", raw, base_style())
-        end
-
-      assert error.message =~ "orphan tile"
-    end
-
-    test "dangling arrow at the edge of the map raises" do
-      # ★●→  — the trailing → has a tile west but nothing east. Dangling.
-      raw = "★●→"
-
-      error =
-        assert_raise ParseError, fn ->
-          Board.parse("dangling_edge", raw, base_style())
-        end
-
-      assert error.message =~ "dangling"
-      assert error.message =~ "edge_east"
-    end
-
-    test "dangling arrow with decor on one side raises" do
-      # ★● →   — the arrow has a tile to its west but decor to its east.
-      raw = "★● → "
-
-      error =
-        assert_raise ParseError, fn ->
-          Board.parse("dangling_decor", raw, base_style())
-        end
-
-      assert error.message =~ "dangling"
+    test "dangling edge char (no node on the far side) raises" do
+      # S--- with nothing past the dashes
+      assert_raise ParseError, ~r/dangling/, fn ->
+        Board.parse("dangling", "S---", StyleS_X_Dash_Pipe)
+      end
     end
   end
 
   describe "public_view/1" do
-    test "returns the expected shape with start as a 2-element list (not a tuple)" do
-      raw = "★●●"
-      board = Board.parse("pv", raw, base_style())
+    test "returns a JSON-ready map with all expected keys" do
+      board = Board.parse("pv", "S-X", StyleS_X_Dash_Pipe)
       view = Board.public_view(board)
 
-      assert is_map(view)
       assert view.name == "pv"
-      assert view.raw == raw
+      assert view.raw == "S-X"
       assert view.width == 3
       assert view.height == 1
       assert view.start == [0, 0]
-      refute is_tuple(view.start)
+      assert is_map(view.node_style)
+      assert is_map(view.edge_style)
+      assert is_map(view.decor_style)
+    end
+
+    test "stringifies atom keys and atom values inside style maps" do
+      board = Board.parse("strs", "S-X", StyleS_X_Dash_Pipe)
+      view = Board.public_view(board)
+
+      assert view.node_style["S"] == %{"kind" => "start", "color" => "yellow"}
+      assert view.node_style["X"] == %{"kind" => "node", "color" => "cyan"}
+      assert view.edge_style["-"] == %{"axis" => "horizontal", "color" => "cyan"}
+    end
+
+    test "start position is a 2-element list, not a tuple" do
+      board = Board.parse("st", "S-X", StyleS_X_Dash_Pipe)
+      view = Board.public_view(board)
       assert is_list(view.start)
       assert length(view.start) == 2
     end
-
-    test "style keys remain strings; entry values are atom-stringified" do
-      style = %{
-        "●" => %{kind: :tile, color: :cyan},
-        "★" => %{kind: :tile, color: :yellow, effect: :star_shop, start: true},
-        "→" => %{kind: :edge_east, color: :cyan},
-        " " => %{kind: :decor, color: :default}
-      }
-
-      # ●★→●● avoids orphaning the rightmost tile (its only would-be
-      # neighbour through the arrow is one-way in; we add another ● for
-      # a west-back edge).
-      raw = "●★→●●"
-
-      board = Board.parse("pv_style", raw, style)
-      view = Board.public_view(board)
-
-      assert Enum.sort(Map.keys(view.style)) == [" ", "→", "●", "★"]
-
-      # Tile entry — atoms stringified to their string equivalents.
-      assert view.style["●"] == %{"kind" => "tile", "color" => "cyan"}
-
-      # Tile with effect + start: start stays boolean, atoms become strings.
-      assert view.style["★"] == %{
-               "kind" => "tile",
-               "color" => "yellow",
-               "effect" => "star_shop",
-               "start" => true
-             }
-
-      # Edge entry.
-      assert view.style["→"] == %{"kind" => "edge_east", "color" => "cyan"}
-
-      # Decor entry.
-      assert view.style[" "] == %{"kind" => "decor", "color" => "default"}
-    end
-  end
-
-  ## ── helpers ────────────────────────────────────────────────────────────
-
-  defp dirs(board, pos) do
-    board.tiles[pos].outgoing |> Enum.map(&elem(&1, 1))
-  end
-
-  defp targets(board, pos) do
-    board.tiles[pos].outgoing |> Enum.map(&elem(&1, 0))
   end
 end
