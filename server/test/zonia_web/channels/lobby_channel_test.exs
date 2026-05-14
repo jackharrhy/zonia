@@ -216,14 +216,14 @@ defmodule ZoniaWeb.LobbyChannelTest do
   end
 
   describe "start_game" do
-    test "host with 2+ players replies :ok with stub message and room is removed" do
+    test "host with 2+ players spawns a game, both sockets get game_started, room is removed" do
       %{user: host, socket: host_socket} = join_lobby()
       drain_initial_pushes(host_socket)
 
       {code, _} = create_room!(host_socket)
       assert_push "rooms", _
 
-      %{socket: joiner_socket} = join_lobby()
+      %{user: joiner, socket: joiner_socket} = join_lobby()
       drain_initial_pushes(joiner_socket)
 
       join_ref = push(joiner_socket, "join_room", %{"code" => code})
@@ -234,7 +234,11 @@ defmodule ZoniaWeb.LobbyChannelTest do
       assert_push "rooms", _
 
       start_ref = push(host_socket, "start_game", %{"code" => code})
-      assert_reply start_ref, :ok, %{message: "game start not implemented"}
+      assert_reply start_ref, :ok
+
+      # Both sockets get game_started for the new game.
+      assert_push "game_started", %{code: ^code}
+      assert_push "game_started", %{code: ^code}
 
       # Room is removed from listing.
       assert_push "rooms", %{rooms: host_rooms}
@@ -243,7 +247,10 @@ defmodule ZoniaWeb.LobbyChannelTest do
       assert_push "rooms", %{rooms: joiner_rooms}
       refute Enum.any?(joiner_rooms, fn r -> r.code == code end)
 
-      _ = host
+      # Clean up: tear down the spawned GameServer so subsequent tests
+      # don't see a stale process.
+      :ok = Zonia.GameServer.leave(code, joiner.id)
+      :game_ended = Zonia.GameServer.leave(code, host.id)
     end
 
     test "non-host attempting to start replies :error not_host" do

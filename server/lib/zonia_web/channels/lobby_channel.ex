@@ -2,7 +2,7 @@ defmodule ZoniaWeb.LobbyChannel do
   @moduledoc """
   The lobby. Players land here after registration. From here they
   create rooms, join other people's rooms, chat with everyone, and
-  (eventually) transition into a game.
+  transition into a game when the host starts.
 
   Only authenticated sockets can join. The channel is a thin shim over
   `Zonia.LobbyServer` — it forwards client actions to the server,
@@ -15,20 +15,28 @@ defmodule ZoniaWeb.LobbyChannel do
       on join and again whenever the listing changes.
     * `say` — `%{name, body, at}`. Chat broadcast.
     * `presence_state`, `presence_diff` — `Phoenix.Presence`.
+    * `game_started` — `%{code}`. Pushed when a room the user is in
+      transitions into a game, OR when the user joins the lobby
+      while already being a player in an in-progress game (rejoin).
+      Clients tear down the lobby scene and mount the game scene.
 
   ## Events in
 
     * `create_room` — `%{}` (defaults used for v1). Replies
       `{:ok, %{room}}` or `{:error, %{reason}}`.
-    * `join_room` — `%{"code" => "BX7Q"}`. Replies similarly.
+    * `join_room` — `%{"code" => "BX7Q"}`. Replies similarly. Also
+      subscribes this channel to the per-room topic so we receive
+      `game_started`.
     * `leave_room` — `%{"code" => "BX7Q"}`. Replies `:ok` or error.
-    * `start_game` — `%{"code" => "BX7Q"}`. Step 2 just acks; step 3
-      will actually transition the room into a game.
+      Unsubscribes from the per-room topic.
+    * `start_game` — `%{"code" => "BX7Q"}`. Spawns a GameServer and
+      broadcasts `game_started` to every player in the room.
     * `say` — `%{"body" => "hi"}`. Broadcast to all subscribers.
   """
   use ZoniaWeb, :channel
 
   alias Phoenix.PubSub
+  alias Zonia.GameServer
   alias Zonia.LobbyServer
   alias ZoniaWeb.Presence
 
@@ -37,6 +45,7 @@ defmodule ZoniaWeb.LobbyChannel do
 
   @impl true
   def join("lobby:main", _payload, %{assigns: %{authenticated: true}} = socket) do
+    socket = assign(socket, :room_subscriptions, MapSet.new())
     send(self(), :after_join)
     {:ok, socket}
   end
@@ -60,6 +69,15 @@ defmodule ZoniaWeb.LobbyChannel do
     PubSub.subscribe(@pubsub, LobbyServer.listing_topic())
     push_rooms(socket)
 
+    # If the user is already a player in an in-progress game (e.g.,
+    # they disconnected and just reconnected), tell their client so it
+    # transitions into the game scene immediately instead of painting
+    # an irrelevant lobby.
+    case GameServer.find_for_user(socket.assigns.user_id) do
+      {:ok, code} -> push(socket, "game_started", %{code: code})
+      :error -> :ok
+    end
+
     {:noreply, socket}
   end
 
@@ -69,12 +87,18 @@ defmodule ZoniaWeb.LobbyChannel do
     {:noreply, socket}
   end
 
+  def handle_info({:game_started, code}, socket) do
+    push(socket, "game_started", %{code: code})
+    {:noreply, socket}
+  end
+
   @impl true
   def handle_in("create_room", _payload, socket) do
     user = current_user(socket)
 
     case LobbyServer.create_room(user) do
       {:ok, room} ->
+        socket = subscribe_to_room(socket, room.code)
         {:reply, {:ok, %{room: encode_room(room)}}, socket}
 
       {:error, reason} ->
@@ -87,6 +111,7 @@ defmodule ZoniaWeb.LobbyChannel do
 
     case LobbyServer.join_room(user, code) do
       {:ok, room} ->
+        socket = subscribe_to_room(socket, room.code)
         {:reply, {:ok, %{room: encode_room(room)}}, socket}
 
       {:error, reason} ->
@@ -102,8 +127,12 @@ defmodule ZoniaWeb.LobbyChannel do
     user = current_user(socket)
 
     case LobbyServer.leave_room(user, code) do
-      :ok -> {:reply, :ok, socket}
-      {:error, reason} -> {:reply, {:error, %{reason: Atom.to_string(reason)}}, socket}
+      :ok ->
+        socket = unsubscribe_from_room(socket, code)
+        {:reply, :ok, socket}
+
+      {:error, reason} ->
+        {:reply, {:error, %{reason: Atom.to_string(reason)}}, socket}
     end
   end
 
@@ -116,9 +145,11 @@ defmodule ZoniaWeb.LobbyChannel do
 
     case LobbyServer.start_game(user, code) do
       {:ok, _room} ->
-        # Step 2 stub. Step 3 will fan out a `game_started` event with
-        # the new game id so clients can transition into the game scene.
-        {:reply, {:ok, %{message: "game start not implemented"}}, socket}
+        # The {:game_started, code} broadcast on the per-room topic
+        # will reach this same socket (we're subscribed because the
+        # host joined the room) and trigger the push down to the
+        # client.
+        {:reply, :ok, socket}
 
       {:error, reason} ->
         {:reply, {:error, %{reason: Atom.to_string(reason)}}, socket}
@@ -188,5 +219,27 @@ defmodule ZoniaWeb.LobbyChannel do
       total_rounds: room.total_rounds,
       max_players: room.max_players
     }
+  end
+
+  defp subscribe_to_room(socket, code) do
+    subs = socket.assigns.room_subscriptions
+
+    if MapSet.member?(subs, code) do
+      socket
+    else
+      PubSub.subscribe(@pubsub, LobbyServer.room_topic(code))
+      assign(socket, :room_subscriptions, MapSet.put(subs, code))
+    end
+  end
+
+  defp unsubscribe_from_room(socket, code) do
+    subs = socket.assigns.room_subscriptions
+
+    if MapSet.member?(subs, code) do
+      PubSub.unsubscribe(@pubsub, LobbyServer.room_topic(code))
+      assign(socket, :room_subscriptions, MapSet.delete(subs, code))
+    else
+      socket
+    end
   end
 end

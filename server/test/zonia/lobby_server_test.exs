@@ -294,6 +294,57 @@ defmodule Zonia.LobbyServerTest do
     end
   end
 
+  describe "start_game/3 spawns a GameServer" do
+    test "find_for_user/1 returns {:ok, code} for each player after start",
+         %{server: server} do
+      {:ok, room} = LobbyServer.create_room(server, user(1001, "alice"))
+      {:ok, _} = LobbyServer.join_room(server, user(1002, "bob"), room.code)
+      drain_broadcasts()
+
+      assert {:ok, _} = LobbyServer.start_game(server, user(1001, "alice"), room.code)
+
+      assert {:ok, code1} = Zonia.GameServer.find_for_user(1001)
+      assert code1 == room.code
+      assert {:ok, code2} = Zonia.GameServer.find_for_user(1002)
+      assert code2 == room.code
+
+      on_exit(fn ->
+        # Best-effort teardown: leave both players so the GameServer
+        # process stops. Any race-condition errors during cleanup are
+        # ignored — the test has already made its assertions.
+        try do
+          _ = Zonia.GameServer.leave(room.code, 1002)
+          _ = Zonia.GameServer.leave(room.code, 1001)
+        catch
+          _, _ -> :ok
+        end
+      end)
+    end
+
+    test "broadcasts {:game_started, code} on LobbyServer.room_topic(code)",
+         %{server: server} do
+      {:ok, room} = LobbyServer.create_room(server, user(2001, "alice"))
+      {:ok, _} = LobbyServer.join_room(server, user(2002, "bob"), room.code)
+      drain_broadcasts()
+
+      :ok = Phoenix.PubSub.subscribe(Zonia.PubSub, LobbyServer.room_topic(room.code))
+
+      assert {:ok, _} = LobbyServer.start_game(server, user(2001, "alice"), room.code)
+
+      code = room.code
+      assert_receive {:game_started, ^code}, 500
+
+      on_exit(fn ->
+        try do
+          _ = Zonia.GameServer.leave(room.code, 2002)
+          _ = Zonia.GameServer.leave(room.code, 2001)
+        catch
+          _, _ -> :ok
+        end
+      end)
+    end
+  end
+
   describe "list_rooms/1 and fetch_room/2" do
     test "list_rooms/1 returns [] on a fresh server", %{server: server} do
       assert LobbyServer.list_rooms(server) == []

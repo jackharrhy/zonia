@@ -13,6 +13,7 @@ import type { Identity } from "../lib/identity.js";
 import { connectAuthed } from "../lib/socket.js";
 import { mountChatPane, type ChatPaneHandle } from "../components/chat-pane.js";
 import { onThemeChange, theme, type Tone } from "../lib/theme.js";
+import type { SceneResult } from "./types.js";
 
 type Mode = "hotkeys" | "chat" | "join_code";
 
@@ -32,8 +33,8 @@ interface RoomsPayload {
 export function runLobbyScene(
   renderer: CliRenderer,
   identity: Identity,
-): Promise<void> {
-  return new Promise<void>((resolve) => {
+): Promise<SceneResult> {
+  return new Promise<SceneResult>((resolve) => {
     const { socket, ready, onStatusChange } = connectAuthed(identity.key);
 
     const root = new BoxRenderable(renderer, {
@@ -428,10 +429,51 @@ export function runLobbyScene(
         });
     };
 
+    let resolved = false;
+    const teardownAndResolve = (result: SceneResult) => {
+      if (resolved) return;
+      resolved = true;
+
+      try {
+        chat?.destroy();
+      } catch {
+        // pane may already be gone
+      }
+      stopThemeWatch();
+      renderer.off(CliRenderEvents.FOCUSED_RENDERABLE, onFocusChange);
+      renderer.keyInput.off("keypress", onKeypress);
+
+      try {
+        renderer.root.remove(root.id);
+      } catch {
+        // already gone
+      }
+
+      if (lobbyChannel) {
+        try {
+          lobbyChannel.leave();
+        } catch {
+          // best effort
+        }
+      }
+
+      try {
+        socket.disconnect();
+      } catch {
+        // best effort
+      }
+
+      resolve(result);
+    };
+
     ready
       .then(() => {
         const channel = socket.channel("lobby:main", {});
         lobbyChannel = channel;
+
+        channel.on("game_started", (payload: { code: string }) => {
+          teardownAndResolve({ kind: "game", code: payload.code });
+        });
 
         channel.on("rooms", (payload: RoomsPayload) => {
           rooms = payload.rooms;
@@ -477,18 +519,13 @@ export function runLobbyScene(
         }
       });
 
-    // Step 2 doesn't actually transition out of the lobby on game start
-    // (the server stub doesn't kick us). For now the lobby scene never
-    // resolves; the user quits via Ctrl-C.
+    // The lobby resolves when:
+    //   - the lobby channel pushes `game_started` (handled above), or
+    //   - after_join replies with `game_started` because the user is
+    //     already in an in-progress game (same code path — the server
+    //     pushes the same event in both cases).
     //
-    // When step 3 lands a `game_started` event, this is where we'd:
-    //   chat?.destroy(); stopThemeWatch(); renderer.root.remove(root.id);
-    //   renderer.off(CliRenderEvents.FOCUSED_RENDERABLE, onFocusChange);
-    //   renderer.keyInput.off("keypress", onKeypress);
-    //   renderer.keyInput.off("keypress", onKeypressGlobal);
-    //   resolve();
-    void stopThemeWatch;
-    void resolve;
+    // teardownAndResolve handles the cleanup in either case.
   });
 }
 

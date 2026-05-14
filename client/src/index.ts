@@ -3,6 +3,8 @@ import { openIdentityStore } from "./lib/identity.js";
 import { initTheme } from "./lib/theme.js";
 import { runRegisterScene } from "./scenes/register.js";
 import { runLobbyScene } from "./scenes/lobby.js";
+import { runGameScene } from "./scenes/game.js";
+import type { SceneResult } from "./scenes/types.js";
 import { registerName } from "./lib/socket.js";
 
 // Parse a single --name flag from argv. Used by `just client <name>` to
@@ -68,4 +70,13 @@ if (!identity) {
   }
 }
 
-await runLobbyScene(renderer, identity);
+// Scene loop: bounce between lobby and game until the process exits
+// (Ctrl-C, handled by the renderer's exitOnCtrlC).
+let next: SceneResult = { kind: "lobby" };
+while (true) {
+  if (next.kind === "lobby") {
+    next = await runLobbyScene(renderer, identity);
+  } else {
+    next = await runGameScene(renderer, identity, next.code);
+  }
+}

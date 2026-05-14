@@ -19,6 +19,7 @@ defmodule ZoniaWeb.UserSocket do
 
   channel("register:lobby", ZoniaWeb.RegisterChannel)
   channel("lobby:main", ZoniaWeb.LobbyChannel)
+  channel("game:*", ZoniaWeb.GameChannel)
 
   @impl true
   def connect(%{"key" => key}, socket, _connect_info) when is_binary(key) and key != "" do

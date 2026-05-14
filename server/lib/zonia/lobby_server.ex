@@ -50,7 +50,7 @@ defmodule Zonia.LobbyServer do
   @type create_error :: :code_exhausted
   @type join_error :: :not_found | :full | :already_in_room
   @type leave_error :: :not_in_room
-  @type start_error :: :not_found | :not_host | :not_enough_players
+  @type start_error :: :not_found | :not_host | :not_enough_players | :spawn_failed
 
   ## ── Public API ──────────────────────────────────────────────────────────
 
@@ -123,15 +123,24 @@ defmodule Zonia.LobbyServer do
   @doc """
   Host-initiated game start.
 
-  Step 2: this only validates and replies. The actual GameServer spawn
-  lands in step 3. We still remove the room from the lobby on success
-  so the listing reflects "the game has started" semantics.
+  Validates host + min players, spawns a `Zonia.GameServer` for the
+  room, broadcasts `:game_started` on the per-room PubSub topic so
+  every player's LobbyChannel can push a `game_started` event down to
+  its socket, then removes the room from the lobby listing.
   """
   @spec start_game(GenServer.server(), user(), String.t()) ::
-          {:ok, room()} | {:error, start_error()}
+          {:ok, room()} | {:error, start_error() | :spawn_failed}
   def start_game(server \\ __MODULE__, user, code) do
     GenServer.call(server, {:start_game, user, code})
   end
+
+  @doc """
+  PubSub topic a LobbyChannel subscribes to while a user is in
+  room `code`. LobbyServer broadcasts `{:game_started, code}` here
+  when the host starts the game.
+  """
+  @spec room_topic(String.t()) :: String.t()
+  def room_topic(code) when is_binary(code), do: "lobby:room:" <> code
 
   @doc "Look up a room by code without mutating state."
   @spec fetch_room(GenServer.server(), String.t()) :: {:ok, room()} | :error
@@ -287,11 +296,36 @@ defmodule Zonia.LobbyServer do
             {:reply, {:error, :not_enough_players}, state}
 
           true ->
-            # Step 2 stub: drop the room from the lobby. Step 3 will
-            # actually spawn a GameServer here.
-            new_state = drop_room(state, code)
-            broadcast_change()
-            {:reply, {:ok, room}, new_state}
+            # Hand the room state to a fresh GameServer. If that fails
+            # for some reason (process limit, board load error, …), we
+            # leave the room in place so the host can retry.
+            game_opts = [
+              code: room.code,
+              board: room.board,
+              total_rounds: room.total_rounds,
+              players: Enum.map(room.players, fn p -> %{user_id: p.user_id, name: p.name} end)
+            ]
+
+            case DynamicSupervisor.start_child(
+                   Zonia.GameSupervisor,
+                   {Zonia.GameServer, game_opts}
+                 ) do
+              {:ok, _pid} ->
+                # Tell every player's LobbyChannel that the room they
+                # were in just transitioned into a game.
+                Phoenix.PubSub.broadcast(
+                  Zonia.PubSub,
+                  room_topic(code),
+                  {:game_started, code}
+                )
+
+                new_state = drop_room(state, code)
+                broadcast_change()
+                {:reply, {:ok, room}, new_state}
+
+              {:error, _reason} ->
+                {:reply, {:error, :spawn_failed}, state}
+            end
         end
     end
   end
