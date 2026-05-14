@@ -102,6 +102,7 @@ export function runGameScene(
       border: true,
       borderStyle: "rounded",
       borderColor: theme.c.muted,
+      backgroundColor: theme.c.bg,
       height: 3,
       paddingLeft: 1,
       paddingRight: 1,
@@ -146,6 +147,7 @@ export function runGameScene(
       border: true,
       borderStyle: "rounded",
       borderColor: theme.c.muted,
+      backgroundColor: theme.c.bg,
       title: "players",
       titleAlignment: "left",
       height: 10,
@@ -162,6 +164,7 @@ export function runGameScene(
       border: true,
       borderStyle: "rounded",
       borderColor: theme.c.muted,
+      backgroundColor: theme.c.bg,
       title: "chat",
       titleAlignment: "left",
       flexGrow: 1,
@@ -185,6 +188,7 @@ export function runGameScene(
       border: true,
       borderStyle: "rounded",
       borderColor: theme.c.muted,
+      backgroundColor: theme.c.bg,
       height: 3,
       paddingLeft: 1,
       paddingRight: 1,
@@ -305,6 +309,12 @@ export function runGameScene(
       chatBox.borderColor = theme.c.muted;
       hotbar.borderColor = theme.c.muted;
       hotbarText.fg = theme.c.muted;
+      // Refresh occluding-panel backgrounds on theme flip so a board
+      // overflowing into them doesn't peek through after dark↔light.
+      topBar.backgroundColor = theme.c.bg;
+      playersBox.backgroundColor = theme.c.bg;
+      chatBox.backgroundColor = theme.c.bg;
+      hotbar.backgroundColor = theme.c.bg;
       renderPlayersPanel();
     });
 

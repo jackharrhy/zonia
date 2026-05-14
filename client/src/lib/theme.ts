@@ -17,6 +17,9 @@ export type Tone =
   | "error"
   /** Your own messages: distinguish from other speakers. */
   | "self"
+  /** Opaque background. Use on panels that sit next to the board so
+   *  oversized boards don't bleed through into chat / players / hotbar. */
+  | "bg"
   /** Per-player pawn colors. Four distinct hues, paired by slot. */
   | "pawn0"
   | "pawn1"
@@ -64,6 +67,10 @@ const dark: Palette = {
   warn: "#f59e0b",
   error: "#ef4444",
   self: "#60a5fa",
+  // Near-black opaque fill. Painted over anything underneath (board
+  // overflow). Slightly off-black so it's distinguishable from the
+  // terminal's actual default background when needed.
+  bg: "#0a0a0a",
   // Pawns — four distinct hues that read well on a colored board.
   pawn0: "#ef4444", // red
   pawn1: "#60a5fa", // blue
@@ -78,6 +85,8 @@ const light: Palette = {
   warn: "#b45309",
   error: "#b91c1c",
   self: "#1d4ed8",
+  // Near-white opaque fill for the same purpose.
+  bg: "#fafafa",
   // Light-mode pawns: deeper for contrast on a brighter background.
   pawn0: "#b91c1c",
   pawn1: "#1d4ed8",
@@ -120,8 +129,14 @@ export async function initTheme(
   const detected = await renderer.waitForThemeMode(timeoutMs);
   if (detected) setMode(detected);
 
+  // Paint the entire render buffer in our `bg` tone. Without this the
+  // renderer treats unset cells as transparent, which lets a board's
+  // overflow leak into chrome that hasn't drawn its own background.
+  renderer.setBackgroundColor(theme.c.bg);
+
   renderer.on(CliRenderEvents.THEME_MODE, (mode: ThemeMode) => {
     setMode(mode);
+    renderer.setBackgroundColor(theme.c.bg);
   });
 }
 

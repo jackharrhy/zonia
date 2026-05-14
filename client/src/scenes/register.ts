@@ -40,7 +40,10 @@ export function runRegisterScene(
     });
 
     const panel = new BoxRenderable(renderer, {
+      border: true,
       borderStyle: "rounded",
+      borderColor: theme.c.muted,
+      backgroundColor: theme.c.bg,
       padding: 2,
       flexDirection: "column",
       gap: 1,
@@ -91,6 +94,8 @@ export function runRegisterScene(
       line1.fg = theme.c.muted;
       line2.fg = theme.c.muted;
       errorLine.fg = theme.c.error;
+      panel.borderColor = theme.c.muted;
+      panel.backgroundColor = theme.c.bg;
     });
 
     let busy = false;

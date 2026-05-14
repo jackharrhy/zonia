@@ -46,6 +46,7 @@ export function runLobbyScene(
       border: true,
       borderStyle: "rounded",
       borderColor: theme.c.muted,
+      backgroundColor: theme.c.bg,
       height: 3,
       paddingLeft: 1,
       paddingRight: 1,
@@ -70,6 +71,7 @@ export function runLobbyScene(
       border: true,
       borderStyle: "rounded",
       borderColor: theme.c.muted,
+      backgroundColor: theme.c.bg,
       title: "rooms",
       titleAlignment: "left",
       flexGrow: 1,
@@ -86,6 +88,7 @@ export function runLobbyScene(
       border: true,
       borderStyle: "rounded",
       borderColor: theme.c.muted,
+      backgroundColor: theme.c.bg,
       title: "your room",
       titleAlignment: "left",
       height: 8,
@@ -107,6 +110,7 @@ export function runLobbyScene(
       border: true,
       borderStyle: "rounded",
       borderColor: theme.c.muted,
+      backgroundColor: theme.c.bg,
       title: "chat",
       titleAlignment: "left",
       paddingLeft: 1,
@@ -125,6 +129,7 @@ export function runLobbyScene(
       border: true,
       borderStyle: "rounded",
       borderColor: theme.c.muted,
+      backgroundColor: theme.c.bg,
       height: 3,
       paddingLeft: 1,
       paddingRight: 1,
@@ -271,6 +276,12 @@ export function runLobbyScene(
       rightCol.borderColor = theme.c.muted;
       promptBox.borderColor = theme.c.muted;
       footer.fg = theme.c.muted;
+      // Repaint panel backgrounds on theme flip.
+      topBar.backgroundColor = theme.c.bg;
+      roomsBox.backgroundColor = theme.c.bg;
+      yourRoomBox.backgroundColor = theme.c.bg;
+      rightCol.backgroundColor = theme.c.bg;
+      promptBox.backgroundColor = theme.c.bg;
       renderEverything();
     });
 
